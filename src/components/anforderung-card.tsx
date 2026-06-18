@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { CalendarClock, Layers, MapPin } from "lucide-react";
+import { Layers, MapPin } from "lucide-react";
 import type { Anforderung } from "@/lib/types";
 import { useStore } from "@/lib/store";
-import { formatDatum, formatTonnage } from "@/lib/calc";
+import { formatTonnage } from "@/lib/calc";
 import { StatusBadge, PrioritaetBadge } from "@/components/status-badge";
+import { WunschterminText } from "@/components/wunschtermin";
 import { Card } from "@/components/ui/card";
 
 export function AnforderungCard({ anforderung }: { anforderung: Anforderung }) {
@@ -37,10 +38,10 @@ export function AnforderungCard({ anforderung }: { anforderung: Anforderung }) {
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1.5">
-            <CalendarClock className="size-3.5" />
-            {formatDatum(anforderung.wunschtermin)}
-          </span>
+          <WunschterminText
+            iso={anforderung.wunschtermin}
+            abgeschlossen={anforderung.status === "abgeschlossen"}
+          />
           <span className="flex items-center gap-1.5">
             <Layers className="size-3.5" />
             {formatTonnage(tonnage)}

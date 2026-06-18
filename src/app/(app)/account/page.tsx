@@ -17,6 +17,7 @@ export default function AccountPage() {
 
   useEffect(() => {
     const gespeichert = localStorage.getItem("asphalt-takt-theme") === "dark";
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Theme erst nach Hydration aus localStorage laden
     setDark(gespeichert);
     document.documentElement.classList.toggle("dark", gespeichert);
   }, []);

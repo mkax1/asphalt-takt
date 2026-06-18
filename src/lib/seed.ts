@@ -110,7 +110,7 @@ export const SEED_MATERIAL: Materialart[] = [
 
 export const SEED_KOLONNEN: Kolonne[] = [
   { id: "k1", name: "Becirovic", farbe: "#E8E000", aktiv: true },
-  { id: "k2", name: "Schmid", farbe: "#005A99", aktiv: true },
+  { id: "k2", name: "Schmid", farbe: "#005A9A", aktiv: true },
   { id: "k3", name: "Müller", farbe: "#E8730C", aktiv: true },
 ];
 

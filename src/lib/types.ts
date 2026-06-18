@@ -11,6 +11,14 @@ export type Prioritaet = "niedrig" | "mittel" | "hoch";
 
 export type MaterialKategorie = "tragschicht" | "binderschicht" | "deckschicht";
 
+export interface Mischanlage {
+  adresse: string;
+  breitengrad: number;
+  laengengrad: number;
+  /** Produktionsleistung der Anlage in Tonnen pro Stunde. */
+  produktionsleistung: number;
+}
+
 export interface Benutzer {
   id: string;
   name: string;

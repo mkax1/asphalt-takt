@@ -16,6 +16,7 @@ import type {
   Einsatz,
   Kolonne,
   Materialart,
+  Mischanlage,
 } from "./types";
 import {
   SEED_ANFORDERUNGEN,
@@ -33,7 +34,15 @@ interface DataState {
   kolonnen: Kolonne[];
   anforderungen: Anforderung[];
   einsaetze: Einsatz[];
+  mischanlage: Mischanlage;
 }
+
+const SEED_MISCHANLAGE: Mischanlage = {
+  adresse: "Ewigkeit 27, 88299 Leutkirch im Allgäu-Tautenhofen",
+  breitengrad: 47.8573,
+  laengengrad: 9.9967,
+  produktionsleistung: 160,
+};
 
 const SEED: DataState = {
   benutzer: SEED_BENUTZER,
@@ -42,6 +51,7 @@ const SEED: DataState = {
   kolonnen: SEED_KOLONNEN,
   anforderungen: SEED_ANFORDERUNGEN,
   einsaetze: SEED_EINSAETZE,
+  mischanlage: SEED_MISCHANLAGE,
 };
 
 const DATA_KEY = "asphalt-takt-data-v1";
@@ -61,6 +71,7 @@ interface StoreContextType extends DataState {
   updateKolonne: (id: string, patch: Partial<Kolonne>) => void;
   addEinsatz: (e: Omit<Einsatz, "id">) => void;
   deleteEinsatz: (id: string) => void;
+  setMischanlage: (m: Mischanlage) => void;
   resetDaten: () => void;
 }
 
@@ -81,6 +92,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(DATA_KEY);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Daten erst nach Hydration aus localStorage laden
       if (raw) setData({ ...SEED, ...JSON.parse(raw) });
       const u = localStorage.getItem(USER_KEY);
       if (u) setCurrentUserIdState(u);
@@ -209,6 +221,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
+  const setMischanlage = useCallback((m: Mischanlage) => {
+    setData((d) => ({ ...d, mischanlage: m }));
+  }, []);
+
   const resetDaten = useCallback(() => {
     setData(SEED);
   }, []);
@@ -232,6 +248,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       updateKolonne,
       addEinsatz,
       deleteEinsatz,
+      setMischanlage,
       resetDaten,
     }),
     [
@@ -249,6 +266,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       updateKolonne,
       addEinsatz,
       deleteEinsatz,
+      setMischanlage,
       resetDaten,
     ]
   );

@@ -4,11 +4,19 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ArrowLeft, ArrowRight, CheckCircle2, Pencil } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  FileText,
+  Pencil,
+} from "lucide-react";
+import { bestellscheinDrucken } from "@/lib/bestellschein";
 import { useStore } from "@/lib/store";
 import { formatDatum, formatTonnage } from "@/lib/calc";
 import { naechsterStatus, STATUS_LABEL } from "@/lib/status";
 import { PageHeader } from "@/components/page-header";
+import { LogistikRechner } from "@/components/logistik-rechner";
 import { StatusBadge, PrioritaetBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -52,6 +60,7 @@ export default function AnforderungDetailPage() {
     anforderungen,
     baustellen,
     materialarten,
+    benutzer,
     currentUser,
     setAnforderungStatus,
   } = useStore();
@@ -73,6 +82,9 @@ export default function AnforderungDetailPage() {
 
   const baustelle = baustellen.find((b) => b.id === a.baustelle_id);
   const gesamtTonnage = a.materialien.reduce((s, m) => s + m.tonnage, 0);
+  const erstesMaterial = materialarten.find(
+    (m) => m.id === a.materialien[0]?.material_id
+  );
   const next = naechsterStatus(a.status);
   const darfStatusAendern =
     currentUser.rolle === "disposition" || currentUser.rolle === "admin";
@@ -84,6 +96,25 @@ export default function AnforderungDetailPage() {
     if (!a || !next) return;
     setAnforderungStatus(a.id, next);
     toast.success(`Status: ${STATUS_LABEL[next]}`);
+  }
+
+  function pdfErzeugen() {
+    if (!a) return;
+    const ok = bestellscheinDrucken({
+      anforderung: a,
+      baustelle,
+      materialName: (id) => {
+        const m = materialarten.find((x) => x.id === id);
+        return m ? `${m.material_nr} | ${m.bezeichnung}` : "Material";
+      },
+      erfasserName: benutzer.find((u) => u.id === a.erfasst_von)?.name,
+      logoUrl: window.location.origin + "/logo.png",
+    });
+    if (!ok) {
+      toast.error(
+        "Pop-up wurde blockiert. Bitte Pop-ups für diese Seite erlauben."
+      );
+    }
   }
 
   return (
@@ -103,6 +134,10 @@ export default function AnforderungDetailPage() {
         description={a.adresse}
         actions={
           <>
+            <Button variant="outline" onClick={pdfErzeugen}>
+              <FileText className="size-4" />
+              Bestellschein als PDF
+            </Button>
             {darfBearbeiten && (
               <Button
                 variant="outline"
@@ -120,7 +155,7 @@ export default function AnforderungDetailPage() {
                 ) : (
                   <ArrowRight className="size-4" />
                 )}
-                Weiter zu „{STATUS_LABEL[next]}"
+                Weiter zu „{STATUS_LABEL[next]}“
               </Button>
             )}
           </>
@@ -211,6 +246,13 @@ export default function AnforderungDetailPage() {
               </Table>
             </CardContent>
           </Card>
+
+          <LogistikRechner
+            gesamtTonnage={gesamtTonnage}
+            zielLat={a.breitengrad}
+            zielLng={a.laengengrad}
+            standardLadekapazitaet={erstesMaterial?.standard_lkw}
+          />
 
           <Card>
             <CardHeader>

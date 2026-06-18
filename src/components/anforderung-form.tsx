@@ -329,7 +329,13 @@ export function AnforderungForm({ initial }: { initial?: Anforderung }) {
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Baustelle *</Label>
-                <Select value={baustelleId} onValueChange={handleBaustelle}>
+                <Select
+                  value={baustelleId}
+                  onValueChange={(v) => v && handleBaustelle(v)}
+                  items={Object.fromEntries(
+                    baustellen.map((b) => [b.id, b.name])
+                  )}
+                >
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Baustelle wählen…" />
                   </SelectTrigger>
@@ -452,8 +458,14 @@ export function AnforderungForm({ initial }: { initial?: Anforderung }) {
                       <Select
                         value={p.material_id}
                         onValueChange={(v) =>
-                          updatePos(p.key, { material_id: v })
+                          updatePos(p.key, { material_id: v ?? "" })
                         }
+                        items={Object.fromEntries(
+                          materialarten.map((m) => [
+                            m.id,
+                            `${m.material_nr} | ${m.bezeichnung}`,
+                          ])
+                        )}
                       >
                         <SelectTrigger className="w-full">
                           <SelectValue placeholder="Material wählen…" />
@@ -571,6 +583,7 @@ export function AnforderungForm({ initial }: { initial?: Anforderung }) {
               <Select
                 value={prioritaet}
                 onValueChange={(v) => setPrioritaet(v as Prioritaet)}
+                items={{ niedrig: "Niedrig", mittel: "Mittel", hoch: "Hoch" }}
               >
                 <SelectTrigger className="w-full">
                   <SelectValue />

@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { MapPin, Pencil, Plus } from "lucide-react";
+import { MapPin, MoreVertical, Pencil, Plus, Power, Search } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
@@ -17,8 +17,20 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -27,6 +39,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import type { Baustelle } from "@/lib/types";
 
 const leer: Omit<Baustelle, "id"> = {
@@ -43,9 +56,20 @@ export default function BaustellenPage() {
   const { baustellen, currentUser, addBaustelle, updateBaustelle } = useStore();
   const darfBearbeiten = currentUser.rolle === "admin";
 
+  const [suche, setSuche] = useState("");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<Omit<Baustelle, "id">>(leer);
+
+  const gefiltert = useMemo(() => {
+    const q = suche.trim().toLowerCase();
+    if (!q) return baustellen;
+    return baustellen.filter((b) =>
+      [b.name, b.baustellennummer, b.adresse, b.ansprechpartner, b.ordner_nr]
+        .filter(Boolean)
+        .some((f) => f!.toLowerCase().includes(q))
+    );
+  }, [baustellen, suche]);
 
   function neu() {
     setEditId(null);
@@ -59,6 +83,14 @@ export default function BaustellenPage() {
     void _id;
     setForm(rest);
     setOpen(true);
+  }
+
+  function statusUmschalten(b: Baustelle) {
+    const neuerStatus = b.status === "aktiv" ? "inaktiv" : "aktiv";
+    updateBaustelle(b.id, { status: neuerStatus });
+    toast.success(
+      neuerStatus === "aktiv" ? "Baustelle aktiviert." : "Baustelle deaktiviert."
+    );
   }
 
   function speichern() {
@@ -91,56 +123,103 @@ export default function BaustellenPage() {
         }
       />
 
+      <div className="mb-4 relative max-w-md">
+        <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          placeholder="Name, Nummer, Ort oder Ansprechpartner suchen…"
+          value={suche}
+          onChange={(e) => setSuche(e.target.value)}
+          className="pl-9"
+        />
+      </div>
+
       <Card>
         <CardContent className="p-0">
-          <Table>
+          <Table className="table-fixed">
             <TableHeader>
               <TableRow>
-                <TableHead>Ordner-Nr.</TableHead>
-                <TableHead>Nummer</TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Ort / Adresse</TableHead>
-                <TableHead>Ansprechpartner</TableHead>
-                <TableHead>Status</TableHead>
-                {darfBearbeiten && <TableHead></TableHead>}
+                <TableHead className="w-[9%]">Ordner</TableHead>
+                <TableHead className="w-[13%]">Nummer</TableHead>
+                <TableHead className="w-[25%]">Name</TableHead>
+                <TableHead className="w-[21%]">Ort / Adresse</TableHead>
+                <TableHead className="w-[14%]">Ansprechpartner</TableHead>
+                <TableHead className="w-[10%]">Status</TableHead>
+                {darfBearbeiten && (
+                  <TableHead className="w-[8%] text-right">Aktion</TableHead>
+                )}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {baustellen.map((b) => (
-                <TableRow key={b.id}>
-                  <TableCell className="text-muted-foreground">
+              {gefiltert.length === 0 && (
+                <TableRow>
+                  <TableCell
+                    colSpan={darfBearbeiten ? 7 : 6}
+                    className="py-10 text-center text-sm text-muted-foreground"
+                  >
+                    Keine Baustellen gefunden.
+                  </TableCell>
+                </TableRow>
+              )}
+              {gefiltert.map((b) => (
+                <TableRow
+                  key={b.id}
+                  className={cn(b.status === "inaktiv" && "opacity-55")}
+                >
+                  <TableCell
+                    className="truncate text-muted-foreground"
+                    title={b.ordner_nr}
+                  >
                     {b.ordner_nr || "–"}
                   </TableCell>
-                  <TableCell>{b.baustellennummer}</TableCell>
-                  <TableCell className="font-medium">{b.name}</TableCell>
-                  <TableCell>
+                  <TableCell className="truncate" title={b.baustellennummer}>
+                    {b.baustellennummer}
+                  </TableCell>
+                  <TableCell className="truncate font-medium" title={b.name}>
+                    {b.name}
+                  </TableCell>
+                  <TableCell className="truncate" title={b.adresse}>
                     <span className="flex items-center gap-1.5">
-                      <MapPin className="size-3.5 text-muted-foreground" />
-                      {b.adresse}
+                      <MapPin className="size-3.5 shrink-0 text-muted-foreground" />
+                      <span className="truncate">{b.adresse}</span>
                     </span>
                   </TableCell>
-                  <TableCell>{b.ansprechpartner || "–"}</TableCell>
+                  <TableCell
+                    className="truncate"
+                    title={b.ansprechpartner}
+                  >
+                    {b.ansprechpartner || "–"}
+                  </TableCell>
                   <TableCell>
                     <Badge
                       variant="outline"
                       className={
                         b.status === "aktiv"
                           ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                          : "border-slate-200 bg-slate-50 text-slate-500"
+                          : "border-slate-200 bg-slate-100 text-slate-500"
                       }
                     >
-                      {b.status}
+                      {b.status === "aktiv" ? "Aktiv" : "Inaktiv"}
                     </Badge>
                   </TableCell>
                   {darfBearbeiten && (
-                    <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => bearbeiten(b)}
-                      >
-                        <Pencil className="size-4" />
-                      </Button>
+                    <TableCell className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">
+                          <MoreVertical className="size-4" />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => bearbeiten(b)}>
+                            <Pencil className="size-4" />
+                            Bearbeiten
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => statusUmschalten(b)}>
+                            <Power className="size-4" />
+                            {b.status === "aktiv"
+                              ? "Deaktivieren"
+                              : "Aktivieren"}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </TableCell>
                   )}
                 </TableRow>
@@ -196,6 +275,24 @@ export default function BaustellenPage() {
                   setForm({ ...form, ansprechpartner: e.target.value })
                 }
               />
+            </div>
+            <div className="space-y-2">
+              <Label>Status</Label>
+              <Select
+                value={form.status}
+                onValueChange={(v) =>
+                  setForm({ ...form, status: v as Baustelle["status"] })
+                }
+                items={{ aktiv: "Aktiv", inaktiv: "Inaktiv" }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="aktiv">Aktiv</SelectItem>
+                  <SelectItem value="inaktiv">Inaktiv</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2 sm:col-span-2">
               <Label>Baustellenhinweis</Label>

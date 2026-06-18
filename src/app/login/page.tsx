@@ -1,8 +1,8 @@
 "use client";
 
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Truck } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { ROLLE_LABEL } from "@/lib/status";
 import { Button } from "@/components/ui/button";
@@ -34,10 +34,16 @@ export default function LoginPage() {
     <div className="flex min-h-dvh items-center justify-center bg-gradient-to-br from-primary/10 via-background to-accent/30 p-4">
       <Card className="w-full max-w-md p-8">
         <div className="mb-6 flex flex-col items-center text-center">
-          <div className="flex size-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-md">
-            <Truck className="size-7" />
-          </div>
-          <h1 className="mt-4 text-2xl font-semibold">Asphalt-Takt</h1>
+          <Image
+            src="/logo.png"
+            alt="Josef Hebel"
+            width={72}
+            height={72}
+            priority
+            className="size-18 rounded-xl shadow-md"
+          />
+          <div className="mt-3 h-1 w-12 rounded-full bg-hebel-gelb" />
+          <h1 className="mt-3 text-2xl font-semibold">Asphalt-Takt</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Mischgut-Disposition für den Straßenbau
           </p>
@@ -60,7 +66,13 @@ export default function LoginPage() {
           </div>
           <div className="space-y-2">
             <Label>Rolle (Demo-Auswahl)</Label>
-            <Select value={userId} onValueChange={setUserId}>
+            <Select
+              value={userId}
+              onValueChange={(v) => v && setUserId(v)}
+              items={Object.fromEntries(
+                benutzer.map((b) => [b.id, `${b.name} · ${ROLLE_LABEL[b.rolle]}`])
+              )}
+            >
               <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>

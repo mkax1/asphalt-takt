@@ -16,6 +16,15 @@ export const STATUS_LABEL: Record<AnforderungStatus, string> = {
   abgeschlossen: "Abgeschlossen",
 };
 
+/** Kurzform fuer enge Stellen (z. B. Kalender-Karten). */
+export const STATUS_LABEL_KURZ: Record<AnforderungStatus, string> = {
+  neu_erfasst: "Neu",
+  in_pruefung: "In Prüfung",
+  planung_vervollstaendigt: "Geplant",
+  in_bearbeitung: "In Arbeit",
+  abgeschlossen: "Fertig",
+};
+
 /** Tailwind-Klassen je Status fuer farbige Badges. */
 export const STATUS_BADGE: Record<AnforderungStatus, string> = {
   neu_erfasst: "bg-slate-100 text-slate-700 border-slate-200",

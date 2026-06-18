@@ -1,18 +1,19 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import {
   CalendarDays,
   ClipboardList,
+  Factory,
   LayoutDashboard,
   LogOut,
   MapPin,
   MessageSquare,
   Menu,
   Settings,
-  Truck,
   UserCircle,
   X,
 } from "lucide-react";
@@ -42,6 +43,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/kalender", label: "Kalender", icon: CalendarDays },
+  { href: "/tagesbedarf", label: "Tagesbedarf", icon: Factory },
   { href: "/anforderungen", label: "Anforderungen", icon: ClipboardList },
   { href: "/baustellen", label: "Baustellen", icon: MapPin },
   { href: "/admin", label: "Administration", icon: Settings, rollen: ["admin"] },
@@ -70,15 +72,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const sidebar = (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
-      <div className="flex items-center gap-3 px-5 py-5">
-        <div className="flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-          <Truck className="size-5" />
-        </div>
+      <div className="flex items-center gap-3 px-5 pt-5">
+        <Image
+          src="/logo.png"
+          alt="Josef Hebel"
+          width={48}
+          height={48}
+          priority
+          className="size-12 shrink-0 rounded-lg shadow-sm"
+        />
         <div className="leading-tight">
           <div className="text-base font-semibold">Asphalt-Takt</div>
-          <div className="text-xs text-muted-foreground">Mischgut-Disposition</div>
+          <div className="text-xs text-muted-foreground">
+            Mischgut-Disposition
+          </div>
         </div>
       </div>
+      <div className="mx-5 mt-3 mb-4 h-1 rounded-full bg-hebel-gelb" />
 
       <div className="px-3">
         <div className="rounded-xl border border-sidebar-border bg-background/60 p-3">
@@ -103,7 +113,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </label>
             <Select
               value={currentUser.id}
-              onValueChange={(v) => setCurrentUserId(v)}
+              onValueChange={(v) => v && setCurrentUserId(v)}
+              items={Object.fromEntries(
+                benutzer.map((b) => [b.id, ROLLE_LABEL[b.rolle]])
+              )}
             >
               <SelectTrigger className="h-8 w-full text-xs">
                 <SelectValue />

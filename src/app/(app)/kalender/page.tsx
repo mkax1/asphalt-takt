@@ -16,6 +16,11 @@ import {
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { formatTonnage } from "@/lib/calc";
+import {
+  STATUS_BADGE,
+  STATUS_LABEL,
+  STATUS_LABEL_KURZ,
+} from "@/lib/status";
 import { StatusBadge } from "@/components/status-badge";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
@@ -428,7 +433,16 @@ export default function KalenderPage() {
               <Label>Anforderung *</Label>
               <Select
                 value={form.anforderung_id}
-                onValueChange={(v) => setForm({ ...form, anforderung_id: v })}
+                onValueChange={(v) =>
+                  setForm({ ...form, anforderung_id: v ?? "" })
+                }
+                items={Object.fromEntries(
+                  anforderungen.map((a) => [
+                    a.id,
+                    baustellen.find((x) => x.id === a.baustelle_id)?.name ??
+                      a.adresse,
+                  ])
+                )}
               >
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Anforderung wählen…" />
@@ -451,7 +465,8 @@ export default function KalenderPage() {
               <Label>Kolonne *</Label>
               <Select
                 value={form.kolonne_id}
-                onValueChange={(v) => setForm({ ...form, kolonne_id: v })}
+                onValueChange={(v) => setForm({ ...form, kolonne_id: v ?? "" })}
+                items={Object.fromEntries(kolonnen.map((k) => [k.id, k.name]))}
               >
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Kolonne wählen…" />
@@ -611,23 +626,39 @@ function WochenAnsicht({
                     <div className="mt-0.5 text-xs text-muted-foreground">
                       {e.startzeit} · {e.dauer_std} Std.
                     </div>
-                    <div className="mt-1 text-sm font-medium leading-snug break-words">
+                    <div
+                      className="mt-1 line-clamp-2 text-sm font-medium leading-snug break-normal"
+                      title={d.b?.name}
+                    >
                       {d.b?.name ?? "–"}
                     </div>
                     {d.b?.baustellennummer && (
-                      <div className="text-xs text-muted-foreground">
+                      <div className="truncate text-xs text-muted-foreground">
                         Nr. {d.b.baustellennummer}
                       </div>
                     )}
                     {d.material && (
-                      <div className="mt-1 text-xs text-foreground/70 break-words">
+                      <div
+                        className="mt-1 truncate text-xs text-foreground/70"
+                        title={`${d.material} · ${formatTonnage(d.tonnage)}`}
+                      >
                         {d.material} · {formatTonnage(d.tonnage)}
                       </div>
                     )}
                     <div className="mt-2 flex flex-wrap items-center gap-1">
-                      {d.a && <StatusBadge status={d.a.status} />}
+                      {d.a && (
+                        <span
+                          title={STATUS_LABEL[d.a.status]}
+                          className={cn(
+                            "inline-flex max-w-full items-center truncate rounded-full border px-2 py-0.5 text-[11px] font-medium leading-none",
+                            STATUS_BADGE[d.a.status]
+                          )}
+                        >
+                          {STATUS_LABEL_KURZ[d.a.status]}
+                        </span>
+                      )}
                       {konflikt && (
-                        <span className="inline-flex items-center gap-1 rounded-full border border-red-300 bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-700">
+                        <span className="inline-flex items-center gap-1 rounded-full border border-red-300 bg-red-100 px-2 py-0.5 text-[11px] font-medium leading-none text-red-700">
                           <AlertTriangle className="size-3" /> Konflikt
                         </span>
                       )}

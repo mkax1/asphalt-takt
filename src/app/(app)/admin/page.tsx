@@ -2,13 +2,14 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { Plus } from "lucide-react";
+import { Factory, Plus, Save } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { ROLLE_LABEL } from "@/lib/status";
 import { PageHeader } from "@/components/page-header";
+import { StandortAuswahl } from "@/components/standort-auswahl";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -50,7 +51,11 @@ export default function AdminPage() {
     currentUser,
     addMaterialart,
     addKolonne,
+    mischanlage,
+    setMischanlage,
   } = useStore();
+
+  const [anlage, setAnlage] = useState(mischanlage);
 
   const [matOpen, setMatOpen] = useState(false);
   const [matForm, setMatForm] = useState({
@@ -60,7 +65,7 @@ export default function AdminPage() {
   });
 
   const [kolOpen, setKolOpen] = useState(false);
-  const [kolForm, setKolForm] = useState({ name: "", farbe: "#005A99" });
+  const [kolForm, setKolForm] = useState({ name: "", farbe: "#005A9A" });
 
   if (currentUser.rolle !== "admin") {
     return (
@@ -68,7 +73,7 @@ export default function AdminPage() {
         <PageHeader title="Administration" />
         <p className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
           Nur Administratoren haben Zugriff auf diesen Bereich. Wechsle die
-          Rolle (links in der Seitenleiste) auf „Administrator", um die
+          Rolle (links in der Seitenleiste) auf „Administrator“, um die
           Stammdaten zu pflegen.
         </p>
       </div>
@@ -97,7 +102,7 @@ export default function AdminPage() {
     }
     addKolonne({ ...kolForm, aktiv: true });
     toast.success("Kolonne angelegt.");
-    setKolForm({ name: "", farbe: "#005A99" });
+    setKolForm({ name: "", farbe: "#005A9A" });
     setKolOpen(false);
   }
 
@@ -107,6 +112,51 @@ export default function AdminPage() {
         title="Administration"
         description="Stammdaten pflegen: Material, Kolonnen und Benutzer."
       />
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Factory className="size-4 text-primary" />
+            Mischanlagen-Standort
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Ausgangspunkt für die Routen- und Fahrzeitberechnung zu den Baustellen.
+          </p>
+          <StandortAuswahl
+            wert={anlage}
+            onChange={(w) => setAnlage({ ...anlage, ...w })}
+          />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Produktionsleistung der Anlage (t/Std.)</Label>
+              <Input
+                type="number"
+                min={0}
+                value={anlage.produktionsleistung}
+                onChange={(e) =>
+                  setAnlage({
+                    ...anlage,
+                    produktionsleistung: parseFloat(e.target.value) || 0,
+                  })
+                }
+              />
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <Button
+              onClick={() => {
+                setMischanlage(anlage);
+                toast.success("Mischanlagen-Standort gespeichert.");
+              }}
+            >
+              <Save className="size-4" />
+              Standort speichern
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       <Tabs defaultValue="material">
         <TabsList>
@@ -182,9 +232,13 @@ export default function AdminPage() {
                       <TableCell>
                         <Badge
                           variant="outline"
-                          className="border-emerald-200 bg-emerald-50 text-emerald-700"
+                          className={
+                            k.aktiv
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                              : "border-slate-200 bg-slate-100 text-slate-500"
+                          }
                         >
-                          {k.aktiv ? "aktiv" : "inaktiv"}
+                          {k.aktiv ? "Aktiv" : "Inaktiv"}
                         </Badge>
                       </TableCell>
                     </TableRow>
@@ -259,6 +313,11 @@ export default function AdminPage() {
                 onValueChange={(v) =>
                   setMatForm({ ...matForm, kategorie: v as MaterialKategorie })
                 }
+                items={{
+                  tragschicht: "Tragschicht",
+                  binderschicht: "Binderschicht",
+                  deckschicht: "Deckschicht",
+                }}
               >
                 <SelectTrigger className="w-full">
                   <SelectValue />

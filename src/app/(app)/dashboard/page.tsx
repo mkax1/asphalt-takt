@@ -11,6 +11,7 @@ import {
 import { useStore } from "@/lib/store";
 import { PageHeader } from "@/components/page-header";
 import { AnforderungCard } from "@/components/anforderung-card";
+import { TerminLegende } from "@/components/wunschtermin";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -99,7 +100,11 @@ export default function DashboardPage() {
         />
       </div>
 
-      <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className="mt-6">
+        <TerminLegende />
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
         <section>
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">

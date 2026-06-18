@@ -6,6 +6,7 @@ import { Plus, Search } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { PageHeader } from "@/components/page-header";
 import { AnforderungCard } from "@/components/anforderung-card";
+import { TerminLegende } from "@/components/wunschtermin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -58,7 +59,11 @@ export default function AnforderungenPage() {
             className="pl-9"
           />
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
+        <Select
+          value={statusFilter}
+          onValueChange={(v) => setStatusFilter(v ?? "alle")}
+          items={{ alle: "Alle Status", ...STATUS_LABEL }}
+        >
           <SelectTrigger className="w-full sm:w-64">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
@@ -72,6 +77,8 @@ export default function AnforderungenPage() {
           </SelectContent>
         </Select>
       </div>
+
+      <TerminLegende className="mb-4" />
 
       {gefiltert.length === 0 ? (
         <p className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">

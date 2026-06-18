@@ -35,3 +35,27 @@ export function formatDatum(iso?: string): string {
     year: "numeric",
   }).format(d);
 }
+
+export type TerminDringlichkeit = "ueberfaellig" | "bald" | "normal";
+
+/**
+ * Bewertet einen Wunschtermin:
+ * - "ueberfaellig": Termin liegt in der Vergangenheit (und nicht abgeschlossen)
+ * - "bald": Termin innerhalb der nächsten 3 Tage
+ * - "normal": alles andere
+ */
+export function terminDringlichkeit(
+  iso: string | undefined,
+  abgeschlossen: boolean
+): TerminDringlichkeit {
+  if (!iso || abgeschlossen) return "normal";
+  const heute = new Date();
+  heute.setHours(0, 0, 0, 0);
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "normal";
+  d.setHours(0, 0, 0, 0);
+  const diffTage = Math.round((d.getTime() - heute.getTime()) / 86400000);
+  if (diffTage < 0) return "ueberfaellig";
+  if (diffTage <= 3) return "bald";
+  return "normal";
+}
