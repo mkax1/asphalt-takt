@@ -3,23 +3,52 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import { useState } from "react";
 import { toast } from "sonner";
 import {
   ArrowLeft,
   ArrowRight,
+  CalendarPlus,
   CheckCircle2,
+  Clock,
   FileText,
   Pencil,
+  RotateCcw,
+  Trash2,
 } from "lucide-react";
 import { bestellscheinDrucken } from "@/lib/bestellschein";
 import { useStore } from "@/lib/store";
 import { formatDatum, formatTonnage } from "@/lib/calc";
-import { naechsterStatus, STATUS_LABEL } from "@/lib/status";
+import { fmtDatum, fmtZeit, tageBisHeute } from "@/lib/datum";
+import {
+  naechsterStatus,
+  vorherigerStatus,
+  STATUS_LABEL,
+} from "@/lib/status";
 import { PageHeader } from "@/components/page-header";
 import { LogistikRechner } from "@/components/logistik-rechner";
+import { WetterBadge } from "@/components/wetter-karte";
 import { StatusBadge, PrioritaetBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DateField } from "@/components/ui/date-field";
+import { TimeField } from "@/components/ui/time-field";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -61,9 +90,24 @@ export default function AnforderungDetailPage() {
     baustellen,
     materialarten,
     benutzer,
+    kolonnen,
+    einsaetze,
     currentUser,
     setAnforderungStatus,
+    deleteAnforderung,
+    addEinsatz,
+    deleteEinsatz,
   } = useStore();
+
+  const [loeschOffen, setLoeschOffen] = useState(false);
+  const [planOffen, setPlanOffen] = useState(false);
+  const [mehrfachOffen, setMehrfachOffen] = useState(false);
+  const [planForm, setPlanForm] = useState({
+    kolonne_id: "",
+    datum: "",
+    startzeit: "06:00",
+    dauer_std: "10",
+  });
 
   const a = anforderungen.find((x) => x.id === id);
 
@@ -86,16 +130,108 @@ export default function AnforderungDetailPage() {
     (m) => m.id === a.materialien[0]?.material_id
   );
   const next = naechsterStatus(a.status);
+  const prev = vorherigerStatus(a.status);
   const darfStatusAendern =
     currentUser.rolle === "disposition" || currentUser.rolle === "admin";
   const darfBearbeiten =
     currentUser.rolle === "admin" ||
     (currentUser.id === a.erfasst_von && a.status === "neu_erfasst");
+  const darfLoeschen = currentUser.rolle === "admin";
+
+  const benutzerName = (uid: string) =>
+    benutzer.find((u) => u.id === uid)?.name ?? "Unbekannt";
+
+  // Eine Anforderung kann mehrere Einsätze an verschiedenen Tagen/Kolonnen
+  // haben. Sortierung: anstehende Einsätze zuerst (nächster oben), vergangene
+  // danach. Datum wird intern als ISO geführt, nur die Anzeige ist deutsch.
+  const eigeneEinsaetze = einsaetze
+    .filter((e) => e.anforderung_id === a.id)
+    .sort((x, y) => {
+      const xVergangen = tageBisHeute(x.datum) < 0;
+      const yVergangen = tageBisHeute(y.datum) < 0;
+      if (xVergangen !== yVergangen) return xVergangen ? 1 : -1;
+      if (x.datum !== y.datum) {
+        // anstehende aufsteigend (frühester zuerst), vergangene absteigend
+        return xVergangen
+          ? y.datum.localeCompare(x.datum)
+          : x.datum.localeCompare(y.datum);
+      }
+      return x.startzeit.localeCompare(y.startzeit);
+    });
+
+  // Standort für die Wettervorhersage je Einsatz.
+  const wetterLat = a.breitengrad ?? baustelle?.breitengrad;
+  const wetterLng = a.laengengrad ?? baustelle?.laengengrad;
+
+  // Zeitraum automatisch aus den eingeplanten Einsätzen (frühestes–spätestes
+  // Datum). Aktualisiert sich automatisch, da aus dem Store abgeleitet.
+  const einsatzDaten = eigeneEinsaetze.map((e) => e.datum).sort();
+  const zeitraumText =
+    einsatzDaten.length === 0
+      ? "noch nicht eingeplant"
+      : einsatzDaten[0] === einsatzDaten[einsatzDaten.length - 1]
+      ? formatDatum(einsatzDaten[0])
+      : `${formatDatum(einsatzDaten[0])} – ${formatDatum(
+          einsatzDaten[einsatzDaten.length - 1]
+        )}`;
 
   function statusWeiter() {
     if (!a || !next) return;
     setAnforderungStatus(a.id, next);
     toast.success(`Status: ${STATUS_LABEL[next]}`);
+  }
+
+  function statusZurueck() {
+    if (!a || !prev) return;
+    setAnforderungStatus(a.id, prev);
+    toast.success(`Status zurückgesetzt: ${STATUS_LABEL[prev]}`);
+  }
+
+  function anforderungLoeschenBestaetigt() {
+    if (!a) return;
+    deleteAnforderung(a.id);
+    toast.success("Anforderung gelöscht.");
+    router.push("/anforderungen");
+  }
+
+  function einsatzEinplanen() {
+    if (!a) return;
+    if (!planForm.kolonne_id) {
+      toast.error("Bitte eine Kolonne wählen.");
+      return;
+    }
+    if (!planForm.datum) {
+      toast.error("Bitte ein Datum wählen.");
+      return;
+    }
+    // Schutz vor versehentlichem Mehrfach-Planen: ist bereits ein Einsatz
+    // vorhanden, erst nach ausdrücklicher Bestätigung weiteren anlegen.
+    if (eigeneEinsaetze.length > 0) {
+      setMehrfachOffen(true);
+      return;
+    }
+    einsatzAnlegen();
+  }
+
+  function einsatzAnlegen() {
+    if (!a) return;
+    addEinsatz({
+      kolonne_id: planForm.kolonne_id,
+      anforderung_id: a.id,
+      datum: planForm.datum,
+      startzeit: planForm.startzeit || "06:00",
+      dauer_std: parseFloat(planForm.dauer_std) || 0,
+      status: a.status,
+    });
+    toast.success("Einsatz eingeplant.");
+    setMehrfachOffen(false);
+    setPlanOffen(false);
+    setPlanForm({
+      kolonne_id: "",
+      datum: "",
+      startzeit: "06:00",
+      dauer_std: "10",
+    });
   }
 
   function pdfErzeugen() {
@@ -138,6 +274,12 @@ export default function AnforderungDetailPage() {
               <FileText className="size-4" />
               Bestellschein als PDF
             </Button>
+            {darfStatusAendern && (
+              <Button variant="outline" onClick={() => setPlanOffen(true)}>
+                <CalendarPlus className="size-4" />
+                Einsatz einplanen
+              </Button>
+            )}
             {darfBearbeiten && (
               <Button
                 variant="outline"
@@ -146,6 +288,22 @@ export default function AnforderungDetailPage() {
               >
                 <Pencil className="size-4" />
                 Bearbeiten
+              </Button>
+            )}
+            {darfLoeschen && (
+              <Button
+                variant="outline"
+                className="text-destructive hover:text-destructive"
+                onClick={() => setLoeschOffen(true)}
+              >
+                <Trash2 className="size-4" />
+                Löschen
+              </Button>
+            )}
+            {darfStatusAendern && prev && (
+              <Button variant="outline" onClick={statusZurueck}>
+                <RotateCcw className="size-4" />
+                Zurück
               </Button>
             )}
             {darfStatusAendern && next && (
@@ -178,17 +336,19 @@ export default function AnforderungDetailPage() {
                 <Info label="Kostenstelle" value={a.kostenstelle} />
                 <Info label="Ansprechpartner" value={a.ansprechpartner} />
                 <Info
-                  label="Wunschtermin"
+                  label="Wunschtermin (Bauleiter)"
                   value={formatDatum(a.wunschtermin)}
                 />
                 <Info
-                  label="Zeitraum"
+                  label="Zeitraum (geplant)"
                   value={
-                    a.zeitraum_von
-                      ? `${formatDatum(a.zeitraum_von)} – ${formatDatum(
-                          a.zeitraum_bis
-                        )}`
-                      : "–"
+                    einsatzDaten.length === 0 ? (
+                      <span className="text-muted-foreground">
+                        {zeitraumText}
+                      </span>
+                    ) : (
+                      zeitraumText
+                    )
                   }
                 />
                 <Info
@@ -247,13 +407,6 @@ export default function AnforderungDetailPage() {
             </CardContent>
           </Card>
 
-          <LogistikRechner
-            gesamtTonnage={gesamtTonnage}
-            zielLat={a.breitengrad}
-            zielLng={a.laengengrad}
-            standardLadekapazitaet={erstesMaterial?.standard_lkw}
-          />
-
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Einbau &amp; Hinweise</CardTitle>
@@ -305,57 +458,257 @@ export default function AnforderungDetailPage() {
 
           <Card>
             <CardHeader>
+              <CardTitle className="text-base">Eingeplante Einsätze</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {eigeneEinsaetze.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Noch keine Einsätze eingeplant.
+                </p>
+              ) : (
+                eigeneEinsaetze.map((e) => {
+                  const k = kolonnen.find((x) => x.id === e.kolonne_id);
+                  const vergangen = tageBisHeute(e.datum) < 0;
+                  return (
+                    <div
+                      key={e.id}
+                      className="rounded-lg border p-2 text-sm"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="size-3 shrink-0 rounded-full"
+                          style={{ background: k?.farbe || "#64748b" }}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="font-medium">{fmtDatum(e.datum)}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {fmtZeit(e.startzeit)} Uhr · {e.dauer_std} Std. ·{" "}
+                            {k?.name ?? "Kolonne"}
+                          </div>
+                        </div>
+                        {darfStatusAendern && (
+                          <button
+                            onClick={() => {
+                              deleteEinsatz(e.id);
+                              toast.success("Einsatz entfernt.");
+                            }}
+                            className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
+                            aria-label="Einsatz entfernen"
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        )}
+                      </div>
+                      <div className="mt-2 pl-5">
+                        {vergangen ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full border bg-muted/40 px-2 py-0.5 text-xs text-muted-foreground">
+                            <Clock className="size-3.5" />
+                            vergangen
+                          </span>
+                        ) : (
+                          <WetterBadge
+                            lat={wetterLat}
+                            lng={wetterLng}
+                            datum={e.datum}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
               <CardTitle className="text-base">Status-Verlauf</CardTitle>
             </CardHeader>
             <CardContent>
-              <ol className="space-y-3">
-                {(
-                  [
-                    "neu_erfasst",
-                    "in_pruefung",
-                    "planung_vervollstaendigt",
-                    "in_bearbeitung",
-                    "abgeschlossen",
-                  ] as const
-                ).map((s) => {
-                  const reached =
-                    [
-                      "neu_erfasst",
-                      "in_pruefung",
-                      "planung_vervollstaendigt",
-                      "in_bearbeitung",
-                      "abgeschlossen",
-                    ].indexOf(a.status) >=
-                    [
-                      "neu_erfasst",
-                      "in_pruefung",
-                      "planung_vervollstaendigt",
-                      "in_bearbeitung",
-                      "abgeschlossen",
-                    ].indexOf(s);
-                  return (
-                    <li key={s} className="flex items-center gap-3 text-sm">
-                      <span
-                        className={
-                          "flex size-5 items-center justify-center rounded-full text-[10px] " +
-                          (reached
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted text-muted-foreground")
-                        }
-                      >
-                        {reached ? "✓" : ""}
-                      </span>
-                      <span className={reached ? "font-medium" : "text-muted-foreground"}>
-                        {STATUS_LABEL[s]}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ol>
+              {a.statusverlauf && a.statusverlauf.length > 0 ? (
+                <ol className="space-y-3">
+                  {a.statusverlauf.map((eintrag, i) => {
+                    const aktuell = i === a.statusverlauf!.length - 1;
+                    return (
+                      <li key={i} className="flex gap-3 text-sm">
+                        <span
+                          className={
+                            "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] " +
+                            (aktuell
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-muted text-muted-foreground")
+                          }
+                        >
+                          {aktuell ? "✓" : i + 1}
+                        </span>
+                        <div>
+                          <div
+                            className={
+                              aktuell ? "font-medium" : "text-foreground"
+                            }
+                          >
+                            {STATUS_LABEL[eintrag.status]}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {fmtDatum(eintrag.am)}, {fmtZeit(eintrag.am)} Uhr ·{" "}
+                            {benutzerName(eintrag.von)}
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Aktueller Status: {STATUS_LABEL[a.status]}
+                </p>
+              )}
             </CardContent>
           </Card>
         </div>
       </div>
+
+      <div className="mt-6">
+        <LogistikRechner
+          gesamtTonnage={gesamtTonnage}
+          zielLat={a.breitengrad}
+          zielLng={a.laengengrad}
+          standardLadekapazitaet={erstesMaterial?.standard_lkw}
+        />
+      </div>
+
+      {/* Einsatz einplanen */}
+      <Dialog open={planOffen} onOpenChange={setPlanOffen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Einsatz einplanen</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {eigeneEinsaetze.length > 0 && (
+              <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                <CalendarPlus className="mt-0.5 size-4 shrink-0" />
+                <span>
+                  Diese Anforderung ist bereits mit{" "}
+                  {eigeneEinsaetze.length}{" "}
+                  {eigeneEinsaetze.length === 1 ? "Einsatz" : "Einsätzen"}{" "}
+                  eingeplant. Beim Speichern wird ein zusätzlicher Einsatz
+                  angelegt.
+                </span>
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label>Kolonne *</Label>
+              <Select
+                value={planForm.kolonne_id}
+                onValueChange={(v) =>
+                  setPlanForm({ ...planForm, kolonne_id: v ?? "" })
+                }
+                items={Object.fromEntries(
+                  kolonnen.filter((k) => k.aktiv).map((k) => [k.id, k.name])
+                )}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Kolonne wählen…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {kolonnen
+                    .filter((k) => k.aktiv)
+                    .map((k) => (
+                      <SelectItem key={k.id} value={k.id}>
+                        {k.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-2">
+                <Label>Datum *</Label>
+                <DateField
+                  value={planForm.datum}
+                  onChange={(iso) => setPlanForm({ ...planForm, datum: iso })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Startzeit</Label>
+                <TimeField
+                  value={planForm.startzeit}
+                  onChange={(zeit) =>
+                    setPlanForm({ ...planForm, startzeit: zeit })
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Dauer (Std.)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={planForm.dauer_std}
+                  onChange={(e) =>
+                    setPlanForm({ ...planForm, dauer_std: e.target.value })
+                  }
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPlanOffen(false)}>
+              Abbrechen
+            </Button>
+            <Button onClick={einsatzEinplanen}>Einplanen</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Mehrfach-Planung bestätigen */}
+      <Dialog open={mehrfachOffen} onOpenChange={setMehrfachOffen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Bereits eingeplant</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Diese Anforderung ist bereits eingeplant – trotzdem einen weiteren
+            Einsatz anlegen?
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMehrfachOffen(false)}>
+              Abbrechen
+            </Button>
+            <Button onClick={einsatzAnlegen}>
+              <CalendarPlus className="size-4" />
+              Weiteren Einsatz anlegen
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Löschen bestätigen */}
+      <Dialog open={loeschOffen} onOpenChange={setLoeschOffen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Anforderung löschen?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Diese Anforderung wird dauerhaft entfernt
+            {eigeneEinsaetze.length > 0
+              ? ` – inklusive ${eigeneEinsaetze.length} eingeplanter Einsätze`
+              : ""}
+            . Das kann nicht rückgängig gemacht werden.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLoeschOffen(false)}>
+              Abbrechen
+            </Button>
+            <Button
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={anforderungLoeschenBestaetigt}
+            >
+              <Trash2 className="size-4" />
+              Endgültig löschen
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

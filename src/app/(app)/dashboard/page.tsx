@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import {
+  AlertTriangle,
   CheckCircle2,
   ClipboardList,
   Loader2,
@@ -9,6 +10,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
+import { formatDatum, terminDringlichkeit } from "@/lib/calc";
 import { PageHeader } from "@/components/page-header";
 import { AnforderungCard } from "@/components/anforderung-card";
 import { TerminLegende } from "@/components/wunschtermin";
@@ -46,7 +48,7 @@ function KpiCard({
 }
 
 export default function DashboardPage() {
-  const { anforderungen } = useStore();
+  const { anforderungen, baustellen } = useStore();
 
   const gesamt = anforderungen.length;
   const neu = anforderungen.filter(
@@ -59,6 +61,17 @@ export default function DashboardPage() {
   const abgeschlossen = anforderungen.filter(
     (a) => a.status === "abgeschlossen"
   );
+
+  const ueberfaellig = anforderungen
+    .filter(
+      (a) =>
+        terminDringlichkeit(a.wunschtermin, a.status === "abgeschlossen") ===
+        "ueberfaellig"
+    )
+    .sort((x, y) => x.wunschtermin.localeCompare(y.wunschtermin));
+
+  const baustelleName = (id: string) =>
+    baustellen.find((b) => b.id === id)?.name ?? "Baustelle";
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -99,6 +112,40 @@ export default function DashboardPage() {
           tone="bg-emerald-100 text-emerald-700"
         />
       </div>
+
+      {ueberfaellig.length > 0 && (
+        <div className="mt-6 rounded-xl border border-red-300 bg-red-50 p-4">
+          <div className="flex items-center gap-2 font-medium text-red-700">
+            <AlertTriangle className="size-4 shrink-0" />
+            {ueberfaellig.length}{" "}
+            {ueberfaellig.length === 1
+              ? "überfälliger Wunschtermin"
+              : "überfällige Wunschtermine"}
+          </div>
+          <ul className="mt-3 space-y-1.5">
+            {ueberfaellig.slice(0, 5).map((a) => (
+              <li key={a.id}>
+                <Link
+                  href={`/anforderungen/${a.id}`}
+                  className="flex items-center justify-between gap-3 rounded-lg bg-background/70 px-3 py-2 text-sm transition-colors hover:bg-background"
+                >
+                  <span className="truncate font-medium">
+                    {baustelleName(a.baustelle_id)}
+                  </span>
+                  <span className="shrink-0 font-semibold text-red-700 tabular-nums">
+                    {formatDatum(a.wunschtermin)}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+          {ueberfaellig.length > 5 && (
+            <div className="mt-2 text-xs text-red-700/80">
+              … und {ueberfaellig.length - 5} weitere.
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="mt-6">
         <TerminLegende />

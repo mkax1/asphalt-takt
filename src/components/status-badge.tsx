@@ -20,6 +20,7 @@ export function StatusBadge({
       variant="outline"
       className={cn("font-medium", STATUS_BADGE[status], className)}
     >
+      <span className="size-1.5 rounded-full bg-current opacity-60" />
       {STATUS_LABEL[status]}
     </Badge>
   );

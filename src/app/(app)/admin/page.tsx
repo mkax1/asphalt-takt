@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { Factory, Plus, Save } from "lucide-react";
+import { Factory, Plus, Save, Truck } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { ROLLE_LABEL } from "@/lib/status";
 import { PageHeader } from "@/components/page-header";
@@ -53,9 +53,12 @@ export default function AdminPage() {
     addKolonne,
     mischanlage,
     setMischanlage,
+    betrieb,
+    setBetrieb,
   } = useStore();
 
   const [anlage, setAnlage] = useState(mischanlage);
+  const [betriebForm, setBetriebForm] = useState(betrieb);
 
   const [matOpen, setMatOpen] = useState(false);
   const [matForm, setMatForm] = useState({
@@ -153,6 +156,61 @@ export default function AdminPage() {
             >
               <Save className="size-4" />
               Standort speichern
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Truck className="size-4 text-primary" />
+            Fuhrpark &amp; Rüstzeiten
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Firmenweite Werte für die Taktplanung.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Verfügbare LKW gesamt</Label>
+              <Input
+                type="number"
+                min={0}
+                value={betriebForm.fuhrparkLkw}
+                onChange={(e) =>
+                  setBetriebForm({
+                    ...betriebForm,
+                    fuhrparkLkw: parseFloat(e.target.value) || 0,
+                  })
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Sortenwechsel-Rüstzeit (Min.)</Label>
+              <Input
+                type="number"
+                min={0}
+                value={betriebForm.sortenwechselRuestzeitMin}
+                onChange={(e) =>
+                  setBetriebForm({
+                    ...betriebForm,
+                    sortenwechselRuestzeitMin: parseFloat(e.target.value) || 0,
+                  })
+                }
+              />
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <Button
+              onClick={() => {
+                setBetrieb(betriebForm);
+                toast.success("Fuhrpark-Einstellungen gespeichert.");
+              }}
+            >
+              <Save className="size-4" />
+              Einstellungen speichern
             </Button>
           </div>
         </CardContent>

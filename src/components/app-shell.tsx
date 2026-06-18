@@ -5,9 +5,11 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import {
+  BarChart3,
   CalendarDays,
   ClipboardList,
   Factory,
+  GanttChartSquare,
   LayoutDashboard,
   LogOut,
   MapPin,
@@ -40,15 +42,55 @@ interface NavItem {
   rollen?: Array<"bauleiter" | "disposition" | "admin">;
 }
 
-const NAV: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/kalender", label: "Kalender", icon: CalendarDays },
-  { href: "/tagesbedarf", label: "Tagesbedarf", icon: Factory },
-  { href: "/anforderungen", label: "Anforderungen", icon: ClipboardList },
-  { href: "/baustellen", label: "Baustellen", icon: MapPin },
-  { href: "/admin", label: "Administration", icon: Settings, rollen: ["admin"] },
-  { href: "/account", label: "Mein Account", icon: UserCircle },
-  { href: "/feedback", label: "Feedback", icon: MessageSquare },
+interface NavGruppe {
+  titel: string;
+  items: NavItem[];
+}
+
+const NAV_GRUPPEN: NavGruppe[] = [
+  {
+    titel: "Übersicht",
+    items: [{ href: "/dashboard", label: "Dashboard", icon: LayoutDashboard }],
+  },
+  {
+    titel: "Disposition",
+    items: [
+      { href: "/anforderungen", label: "Anforderungen", icon: ClipboardList },
+      { href: "/kalender", label: "Kalender", icon: CalendarDays },
+      {
+        href: "/taktplanung",
+        label: "Taktplanung",
+        icon: GanttChartSquare,
+        rollen: ["disposition", "admin"],
+      },
+      { href: "/tagesbedarf", label: "Tagesbedarf", icon: Factory },
+      {
+        href: "/auswertungen",
+        label: "Auswertungen",
+        icon: BarChart3,
+        rollen: ["disposition", "admin"],
+      },
+    ],
+  },
+  {
+    titel: "Stammdaten",
+    items: [
+      { href: "/baustellen", label: "Baustellen", icon: MapPin },
+      {
+        href: "/admin",
+        label: "Administration",
+        icon: Settings,
+        rollen: ["admin"],
+      },
+    ],
+  },
+  {
+    titel: "Konto",
+    items: [
+      { href: "/account", label: "Mein Account", icon: UserCircle },
+      { href: "/feedback", label: "Feedback", icon: MessageSquare },
+    ],
+  },
 ];
 
 function initials(name: string) {
@@ -66,31 +108,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { currentUser, benutzer, setCurrentUserId } = useStore();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const items = NAV.filter(
-    (item) => !item.rollen || item.rollen.includes(currentUser.rolle)
-  );
+  const gruppen = NAV_GRUPPEN.map((g) => ({
+    ...g,
+    items: g.items.filter(
+      (item) => !item.rollen || item.rollen.includes(currentUser.rolle)
+    ),
+  })).filter((g) => g.items.length > 0);
 
   const sidebar = (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
-      <div className="flex items-center gap-3 px-5 pt-5">
-        <Image
-          src="/logo.png"
-          alt="Josef Hebel"
-          width={48}
-          height={48}
-          priority
-          className="size-12 shrink-0 rounded-lg shadow-sm"
-        />
-        <div className="leading-tight">
-          <div className="text-base font-semibold">Asphalt-Takt</div>
-          <div className="text-xs text-muted-foreground">
-            Mischgut-Disposition
-          </div>
-        </div>
-      </div>
-      <div className="mx-5 mt-3 mb-4 h-1 rounded-full bg-hebel-gelb" />
-
-      <div className="px-3">
+      <div className="px-3 pt-4">
         <div className="rounded-xl border border-sidebar-border bg-background/60 p-3">
           <div className="flex items-center gap-3">
             <Avatar className="size-9">
@@ -133,28 +160,43 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </div>
 
-      <nav className="mt-4 flex-1 space-y-1 px-3">
-        {items.map((item) => {
-          const active =
-            pathname === item.href || pathname.startsWith(item.href + "/");
-          const Icon = item.icon;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={() => setMobileOpen(false)}
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                active
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              )}
-            >
-              <Icon className="size-4 shrink-0" />
-              {item.label}
-            </Link>
-          );
-        })}
+      <nav className="mt-5 flex-1 space-y-5 px-3">
+        {gruppen.map((gruppe) => (
+          <div key={gruppe.titel} className="space-y-0.5">
+            <div className="mb-1 px-3 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              {gruppe.titel}
+            </div>
+            {gruppe.items.map((item) => {
+              const active =
+                pathname === item.href || pathname.startsWith(item.href + "/");
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setMobileOpen(false)}
+                  className={cn(
+                    "relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+                    active
+                      ? "bg-accent font-semibold text-primary"
+                      : "font-medium text-foreground/70 hover:bg-muted hover:text-foreground"
+                  )}
+                >
+                  {active && (
+                    <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-primary" />
+                  )}
+                  <Icon
+                    className={cn(
+                      "size-4 shrink-0",
+                      active ? "text-primary" : "text-muted-foreground"
+                    )}
+                  />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
       <div className="border-t border-sidebar-border p-3">
@@ -171,47 +213,84 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <div className="flex min-h-dvh">
-      {/* Desktop-Sidebar */}
-      <aside className="hidden w-64 shrink-0 border-r border-sidebar-border md:block">
-        <div className="sticky top-0 h-dvh">{sidebar}</div>
-      </aside>
-
-      {/* Mobile-Sidebar */}
-      {mobileOpen && (
-        <div className="fixed inset-0 z-50 md:hidden">
-          <div
-            className="absolute inset-0 bg-black/40"
-            onClick={() => setMobileOpen(false)}
-          />
-          <div className="absolute left-0 top-0 h-full w-72 border-r border-sidebar-border shadow-xl">
-            <button
-              className="absolute right-3 top-3 z-10 rounded-md p-1 hover:bg-sidebar-accent"
-              onClick={() => setMobileOpen(false)}
-              aria-label="Menü schließen"
-            >
-              <X className="size-5" />
-            </button>
-            {sidebar}
-          </div>
-        </div>
-      )}
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        {/* Mobile-Topbar */}
-        <header className="flex items-center gap-3 border-b bg-background px-4 py-3 md:hidden">
+    <div className="flex min-h-dvh flex-col">
+      {/* Globale Kopfzeile im Hebel-Blau */}
+      <header className="sticky top-0 z-40 border-b-2 border-hebel-gelb bg-hebel-blau text-white">
+        <div className="flex h-16 items-center gap-3 px-4 md:px-6">
           <Button
             variant="ghost"
             size="icon"
             onClick={() => setMobileOpen(true)}
             aria-label="Menü öffnen"
+            className="text-white hover:bg-white/15 hover:text-white md:hidden"
           >
             <Menu className="size-5" />
           </Button>
-          <span className="font-semibold">Asphalt-Takt</span>
-        </header>
 
-        <main className="flex-1 px-4 py-6 md:px-8 md:py-8">{children}</main>
+          <Link href="/dashboard" className="flex items-center gap-3">
+            <Image
+              src="/logo.png"
+              alt="Josef Hebel"
+              width={40}
+              height={40}
+              priority
+              className="size-10 shrink-0 object-contain"
+            />
+            <span className="border-l border-white/25 pl-3 leading-tight">
+              <span className="block text-base font-semibold">Asphalt-Takt</span>
+              <span className="hidden text-xs text-white/70 sm:block">
+                Mischgut-Disposition
+              </span>
+            </span>
+          </Link>
+
+          <div className="ml-auto flex items-center gap-3">
+            <div className="hidden text-right sm:block">
+              <div className="text-sm font-medium leading-tight">
+                {currentUser.name}
+              </div>
+              <div className="text-xs text-white/70 leading-tight">
+                {ROLLE_LABEL[currentUser.rolle]}
+              </div>
+            </div>
+            <Avatar className="size-9 ring-2 ring-white/30">
+              <AvatarFallback className="bg-white text-xs font-semibold text-hebel-blau">
+                {initials(currentUser.name)}
+              </AvatarFallback>
+            </Avatar>
+          </div>
+        </div>
+      </header>
+
+      <div className="flex min-h-0 flex-1">
+        {/* Desktop-Sidebar */}
+        <aside className="hidden w-64 shrink-0 border-r border-sidebar-border md:block">
+          <div className="sticky top-16 h-[calc(100dvh-4rem)]">{sidebar}</div>
+        </aside>
+
+        {/* Mobile-Sidebar */}
+        {mobileOpen && (
+          <div className="fixed inset-0 z-50 md:hidden">
+            <div
+              className="absolute inset-0 bg-black/40"
+              onClick={() => setMobileOpen(false)}
+            />
+            <div className="absolute left-0 top-0 h-full w-72 border-r border-sidebar-border bg-sidebar shadow-xl">
+              <button
+                className="absolute right-3 top-3 z-10 rounded-md p-1 hover:bg-sidebar-accent"
+                onClick={() => setMobileOpen(false)}
+                aria-label="Menü schließen"
+              >
+                <X className="size-5" />
+              </button>
+              {sidebar}
+            </div>
+          </div>
+        )}
+
+        <main className="min-w-0 flex-1 px-4 py-6 md:px-8 md:py-8">
+          {children}
+        </main>
       </div>
     </div>
   );

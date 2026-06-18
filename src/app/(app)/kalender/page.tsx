@@ -4,28 +4,49 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
+  closestCenter,
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  pointerWithin,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type CollisionDetection,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import {
   AlertTriangle,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
   Clock,
   ExternalLink,
+  GripVertical,
+  Layers,
+  Pencil,
   Plus,
   Trash2,
   Users,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { formatTonnage } from "@/lib/calc";
+import { fmtDatum, fmtDatumLang } from "@/lib/datum";
 import {
   STATUS_BADGE,
   STATUS_LABEL,
   STATUS_LABEL_KURZ,
 } from "@/lib/status";
 import { StatusBadge } from "@/components/status-badge";
+import { WetterBadge } from "@/components/wetter-karte";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/ui/date-field";
+import { TimeField } from "@/components/ui/time-field";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import {
@@ -115,6 +136,36 @@ function zeitZuMin(t: string): number {
   return (h || 0) * 60 + (m || 0);
 }
 
+/** Prüft, ob ein (geänderter) Einsatz mit einem anderen derselben Kolonne am
+ *  selben Tag zeitlich kollidiert. `ignoreId` schließt den eigenen Einsatz aus. */
+function hatKonflikt(
+  list: Einsatz[],
+  kolonneId: string,
+  datum: string,
+  startMin: number,
+  endMin: number,
+  ignoreId?: string
+): boolean {
+  return list.some((e) => {
+    if (e.id === ignoreId) return false;
+    if (e.kolonne_id !== kolonneId || e.datum !== datum) return false;
+    const s = zeitZuMin(e.startzeit);
+    const en = s + e.dauer_std * 60;
+    return startMin < en && s < endMin;
+  });
+}
+
+/**
+ * Kollisionserkennung für Drag & Drop: zuerst exakt der Ablagebereich unter dem
+ * Mauszeiger (verhindert das versehentliche Treffen des Nachbartags), als
+ * Rückfall – etwa in Lücken zwischen den Karten – der nächstgelegene Bereich.
+ */
+const dropErkennung: CollisionDetection = (args) => {
+  const unterZeiger = pointerWithin(args);
+  if (unterZeiger.length > 0) return unterZeiger;
+  return closestCenter(args);
+};
+
 function berechneKonflikte(list: Einsatz[]): Set<string> {
   const set = new Set<string>();
   for (let i = 0; i < list.length; i++) {
@@ -145,6 +196,7 @@ export default function KalenderPage() {
     materialarten,
     currentUser,
     addEinsatz,
+    updateEinsatz,
     deleteEinsatz,
     setAnforderungStatus,
   } = useStore();
@@ -157,6 +209,7 @@ export default function KalenderPage() {
   const [detail, setDetail] = useState<Einsatz | null>(null);
 
   const [open, setOpen] = useState(false);
+  const [einsatzEditId, setEinsatzEditId] = useState<string | null>(null);
   const [form, setForm] = useState({
     anforderung_id: "",
     kolonne_id: "",
@@ -164,6 +217,11 @@ export default function KalenderPage() {
     startzeit: "06:00",
     dauer_std: "10",
   });
+  // Rückfrage beim Mehrfach-Planen derselben Anforderung.
+  const [bestaetigung, setBestaetigung] = useState<{
+    anzahl: number;
+    aktion: () => void;
+  } | null>(null);
 
   const heuteIso = isoDate(new Date());
 
@@ -226,6 +284,7 @@ export default function KalenderPage() {
 
   // Einsatz-Dialog
   function dialogOeffnen(datum?: string, kolonne_id?: string) {
+    setEinsatzEditId(null);
     setForm({
       anforderung_id: "",
       kolonne_id: kolonne_id ?? "",
@@ -236,32 +295,214 @@ export default function KalenderPage() {
     setOpen(true);
   }
 
+  function dialogBearbeiten(e: Einsatz) {
+    setEinsatzEditId(e.id);
+    setForm({
+      anforderung_id: e.anforderung_id,
+      kolonne_id: e.kolonne_id,
+      datum: e.datum,
+      startzeit: e.startzeit,
+      dauer_std: String(e.dauer_std),
+    });
+    setDetail(null);
+    setOpen(true);
+  }
+
+  /** Zählt bereits geplante Einsätze einer Anforderung. */
+  function anzahlEinsaetze(anforderungId: string): number {
+    return einsaetze.filter((e) => e.anforderung_id === anforderungId).length;
+  }
+
+  /**
+   * Führt eine Plan-Aktion aus – aber nur direkt, wenn die Anforderung noch
+   * keinen Einsatz hat. Andernfalls erst nach ausdrücklicher Bestätigung.
+   */
+  function mitMehrfachPruefung(anforderungId: string, aktion: () => void) {
+    const anzahl = anzahlEinsaetze(anforderungId);
+    if (anzahl > 0) {
+      setBestaetigung({ anzahl, aktion });
+    } else {
+      aktion();
+    }
+  }
+
   function einsatzSpeichern() {
     if (!form.anforderung_id || !form.kolonne_id || !form.datum) {
       toast.error("Bitte Anforderung, Kolonne und Datum wählen.");
       return;
     }
-    addEinsatz({
-      anforderung_id: form.anforderung_id,
-      kolonne_id: form.kolonne_id,
-      datum: form.datum,
-      startzeit: form.startzeit,
-      dauer_std: parseFloat(form.dauer_std) || 0,
-      status: "planung_vervollstaendigt",
-    });
-    const a = anforderungen.find((x) => x.id === form.anforderung_id);
-    if (a && (a.status === "neu_erfasst" || a.status === "in_pruefung")) {
-      setAnforderungStatus(a.id, "planung_vervollstaendigt");
+    if (einsatzEditId) {
+      updateEinsatz(einsatzEditId, {
+        anforderung_id: form.anforderung_id,
+        kolonne_id: form.kolonne_id,
+        datum: form.datum,
+        startzeit: form.startzeit,
+        dauer_std: parseFloat(form.dauer_std) || 0,
+      });
+      toast.success("Einsatz aktualisiert.");
+      setOpen(false);
+      return;
     }
-    toast.success("Einsatz eingeplant.");
-    setOpen(false);
+    mitMehrfachPruefung(form.anforderung_id, () => {
+      addEinsatz({
+        anforderung_id: form.anforderung_id,
+        kolonne_id: form.kolonne_id,
+        datum: form.datum,
+        startzeit: form.startzeit,
+        dauer_std: parseFloat(form.dauer_std) || 0,
+        status: "planung_vervollstaendigt",
+      });
+      const a = anforderungen.find((x) => x.id === form.anforderung_id);
+      if (a && (a.status === "neu_erfasst" || a.status === "in_pruefung")) {
+        setAnforderungStatus(a.id, "planung_vervollstaendigt");
+      }
+      toast.success("Einsatz eingeplant.");
+      setOpen(false);
+    });
   }
+
+  /* --------------------------- Drag & Drop --------------------------- */
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+  );
+  const [aktiverDrag, setAktiverDrag] = useState<{
+    typ: "anforderung" | "einsatz";
+    id: string;
+  } | null>(null);
+
+  // Anforderungen ohne eingeplanten Einsatz (noch zu planen)
+  const ungeplante = useMemo(() => {
+    const geplant = new Set(einsaetze.map((e) => e.anforderung_id));
+    return anforderungen
+      .filter((a) => a.status !== "abgeschlossen" && !geplant.has(a.id))
+      .sort((a, b) => a.wunschtermin.localeCompare(b.wunschtermin));
+  }, [anforderungen, einsaetze]);
+
+  function einsatzAusAnforderung(
+    anforderungId: string,
+    kolonneId: string,
+    datum: string,
+    startzeit = "06:00"
+  ) {
+    const anlegen = () => {
+      const a = anforderungen.find((x) => x.id === anforderungId);
+      const dauer = a?.dauer_std && a.dauer_std > 0 ? a.dauer_std : 10;
+      addEinsatz({
+        anforderung_id: anforderungId,
+        kolonne_id: kolonneId,
+        datum,
+        startzeit,
+        dauer_std: dauer,
+        status: "planung_vervollstaendigt",
+      });
+      if (a && (a.status === "neu_erfasst" || a.status === "in_pruefung")) {
+        setAnforderungStatus(a.id, "planung_vervollstaendigt");
+      }
+      const start = zeitZuMin(startzeit);
+      if (hatKonflikt(einsaetze, kolonneId, datum, start, start + dauer * 60)) {
+        toast.warning("Eingeplant – Achtung: Konflikt mit einem anderen Einsatz dieser Kolonne.");
+      } else {
+        toast.success("Einsatz eingeplant.");
+      }
+    };
+    mitMehrfachPruefung(anforderungId, anlegen);
+  }
+
+  function dialogAusAnforderung(anforderungId: string, datum: string) {
+    setEinsatzEditId(null);
+    setForm({
+      anforderung_id: anforderungId,
+      kolonne_id: "",
+      datum,
+      startzeit: "06:00",
+      dauer_std: "10",
+    });
+    setOpen(true);
+  }
+
+  function einsatzVerschieben(
+    einsatzId: string,
+    datum: string,
+    kolonneId?: string
+  ) {
+    const e = einsaetze.find((x) => x.id === einsatzId);
+    if (!e) return;
+    const neueKolonne = kolonneId ?? e.kolonne_id;
+    if (e.datum === datum && neueKolonne === e.kolonne_id) return;
+    updateEinsatz(einsatzId, { datum, kolonne_id: neueKolonne });
+    const start = zeitZuMin(e.startzeit);
+    if (
+      hatKonflikt(
+        einsaetze,
+        neueKolonne,
+        datum,
+        start,
+        start + e.dauer_std * 60,
+        einsatzId
+      )
+    ) {
+      toast.warning("Verschoben – Achtung: Konflikt mit einem anderen Einsatz dieser Kolonne.");
+    } else {
+      toast.success("Einsatz verschoben.");
+    }
+  }
+
+  function onDragStart(ev: DragStartEvent) {
+    const data = ev.active.data.current as
+      | { typ: "anforderung" | "einsatz"; id: string }
+      | undefined;
+    if (data) setAktiverDrag(data);
+  }
+
+  function onDragEnd(ev: DragEndEvent) {
+    setAktiverDrag(null);
+    const aktiv = ev.active.data.current as
+      | { typ: "anforderung" | "einsatz"; id: string }
+      | undefined;
+    const ziel = ev.over?.data.current as
+      | { typ: "day"; iso: string }
+      | { typ: "cell"; kolonneId: string; iso: string }
+      | undefined;
+    if (!aktiv || !ziel) return;
+
+    if (aktiv.typ === "anforderung") {
+      if (ziel.typ === "day") {
+        dialogAusAnforderung(aktiv.id, ziel.iso);
+      } else {
+        einsatzAusAnforderung(aktiv.id, ziel.kolonneId, ziel.iso);
+      }
+    } else {
+      if (ziel.typ === "day") {
+        einsatzVerschieben(aktiv.id, ziel.iso);
+      } else {
+        einsatzVerschieben(aktiv.id, ziel.iso, ziel.kolonneId);
+      }
+    }
+  }
+
+  const dragAnforderung =
+    aktiverDrag?.typ === "anforderung"
+      ? anforderungen.find((a) => a.id === aktiverDrag.id)
+      : undefined;
+  const dragEinsatz =
+    aktiverDrag?.typ === "einsatz"
+      ? einsaetze.find((e) => e.id === aktiverDrag.id)
+      : undefined;
+
+  // Immer den aktuellen Stand des geöffneten Einsatzes anzeigen, damit Datum,
+  // Wetter und Status nach einer Änderung sofort konsistent sind.
+  const detailLive = detail
+    ? einsaetze.find((e) => e.id === detail.id) ?? null
+    : null;
 
   const ANSICHTEN: { id: Ansicht; label: string }[] = [
     { id: "woche", label: "Woche" },
     { id: "monat", label: "Monat" },
     { id: "kolonnen", label: "Kolonnen" },
   ];
+
+  const zeigePanel = darfPlanen && ansicht !== "monat";
 
   return (
     <div className="mx-auto max-w-7xl">
@@ -346,46 +587,74 @@ export default function KalenderPage() {
         </div>
       </div>
 
-      {ansicht === "woche" && (
-        <WochenAnsicht
-          anker={anker}
-          einsaetze={sichtbareEinsaetze}
-          konfliktSet={konfliktSet}
-          heuteIso={heuteIso}
-          darfPlanen={darfPlanen}
-          info={info}
-          onEinsatz={setDetail}
-          onPlanen={dialogOeffnen}
-        />
-      )}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={dropErkennung}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        onDragCancel={() => setAktiverDrag(null)}
+      >
+        {zeigePanel && (
+          <ZuPlanenPanel anforderungen={ungeplante} info={info} />
+        )}
 
-      {ansicht === "monat" && (
-        <MonatsAnsicht
-          anker={anker}
-          einsaetze={sichtbareEinsaetze}
-          konfliktSet={konfliktSet}
-          heuteIso={heuteIso}
-          info={info}
-          onTag={(d) => {
-            setAnsicht("woche");
-            setAnker(startDerWoche(d));
-          }}
-        />
-      )}
+        {ansicht === "woche" && (
+          <WochenAnsicht
+            anker={anker}
+            einsaetze={sichtbareEinsaetze}
+            konfliktSet={konfliktSet}
+            heuteIso={heuteIso}
+            darfPlanen={darfPlanen}
+            ziehtGerade={aktiverDrag != null}
+            info={info}
+            onEinsatz={setDetail}
+            onPlanen={dialogOeffnen}
+          />
+        )}
 
-      {ansicht === "kolonnen" && (
-        <KolonnenAnsicht
-          anker={anker}
-          kolonnen={kolonnen}
-          einsaetze={sichtbareEinsaetze}
-          konfliktSet={konfliktSet}
-          heuteIso={heuteIso}
-          darfPlanen={darfPlanen}
-          info={info}
-          onEinsatz={setDetail}
-          onPlanen={dialogOeffnen}
-        />
-      )}
+        {ansicht === "monat" && (
+          <MonatsAnsicht
+            anker={anker}
+            einsaetze={sichtbareEinsaetze}
+            konfliktSet={konfliktSet}
+            heuteIso={heuteIso}
+            info={info}
+            onTag={(d) => {
+              setAnsicht("woche");
+              setAnker(startDerWoche(d));
+            }}
+          />
+        )}
+
+        {ansicht === "kolonnen" && (
+          <KolonnenAnsicht
+            anker={anker}
+            kolonnen={kolonnen}
+            einsaetze={sichtbareEinsaetze}
+            konfliktSet={konfliktSet}
+            heuteIso={heuteIso}
+            darfPlanen={darfPlanen}
+            ziehtGerade={aktiverDrag != null}
+            info={info}
+            onEinsatz={setDetail}
+            onPlanen={dialogOeffnen}
+          />
+        )}
+
+        <DragOverlay dropAnimation={null}>
+          {dragAnforderung ? (
+            <DragVorschau
+              titel={info({ anforderung_id: dragAnforderung.id } as Einsatz).b?.name ?? "Anforderung"}
+              farbe="#005A9A"
+            />
+          ) : dragEinsatz ? (
+            <DragVorschau
+              titel={info(dragEinsatz).b?.name ?? "Einsatz"}
+              farbe={info(dragEinsatz).kolonne?.farbe ?? "#005A9A"}
+            />
+          ) : null}
+        </DragOverlay>
+      </DndContext>
 
       {/* Legende */}
       <div className="mt-6">
@@ -410,11 +679,12 @@ export default function KalenderPage() {
 
       {/* Detail-Dialog */}
       <EinsatzDetailDialog
-        einsatz={detail}
+        einsatz={detailLive}
         onClose={() => setDetail(null)}
-        konflikt={detail ? konfliktSet.has(detail.id) : false}
+        konflikt={detailLive ? konfliktSet.has(detailLive.id) : false}
         info={info}
         darfPlanen={darfPlanen}
+        onEdit={dialogBearbeiten}
         onDelete={(id) => {
           deleteEinsatz(id);
           setDetail(null);
@@ -426,7 +696,9 @@ export default function KalenderPage() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Einsatz planen</DialogTitle>
+            <DialogTitle>
+              {einsatzEditId ? "Einsatz bearbeiten" : "Einsatz planen"}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
@@ -485,20 +757,16 @@ export default function KalenderPage() {
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-2">
                 <Label>Datum *</Label>
-                <Input
-                  type="date"
+                <DateField
                   value={form.datum}
-                  onChange={(e) => setForm({ ...form, datum: e.target.value })}
+                  onChange={(iso) => setForm({ ...form, datum: iso })}
                 />
               </div>
               <div className="space-y-2">
                 <Label>Startzeit</Label>
-                <Input
-                  type="time"
+                <TimeField
                   value={form.startzeit}
-                  onChange={(e) =>
-                    setForm({ ...form, startzeit: e.target.value })
-                  }
+                  onChange={(zeit) => setForm({ ...form, startzeit: zeit })}
                 />
               </div>
               <div className="space-y-2">
@@ -517,7 +785,40 @@ export default function KalenderPage() {
             <Button variant="outline" onClick={() => setOpen(false)}>
               Abbrechen
             </Button>
-            <Button onClick={einsatzSpeichern}>Einplanen</Button>
+            <Button onClick={einsatzSpeichern}>
+              {einsatzEditId ? "Speichern" : "Einplanen"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Mehrfach-Planung bestätigen */}
+      <Dialog
+        open={bestaetigung != null}
+        onOpenChange={(o) => !o && setBestaetigung(null)}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Bereits eingeplant</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Diese Anforderung ist bereits mit {bestaetigung?.anzahl}{" "}
+            {bestaetigung?.anzahl === 1 ? "Einsatz" : "Einsätzen"} eingeplant –
+            trotzdem einen weiteren Einsatz anlegen?
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBestaetigung(null)}>
+              Abbrechen
+            </Button>
+            <Button
+              onClick={() => {
+                bestaetigung?.aktion();
+                setBestaetigung(null);
+              }}
+            >
+              <Plus className="size-4" />
+              Weiteren Einsatz anlegen
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -535,6 +836,194 @@ type InfoFn = (e: Einsatz) => {
   material: string;
 };
 
+type DropData =
+  | { typ: "day"; iso: string }
+  | { typ: "cell"; kolonneId: string; iso: string };
+
+type DragData = { typ: "anforderung" | "einsatz"; id: string };
+
+/* ----------------------------- DnD-Bausteine ----------------------------- */
+
+/** Ablagefläche (Tag oder Kolonnen-Zelle). Hebt sich beim Ziehen hervor. */
+function DropZone({
+  id,
+  data,
+  aktiv,
+  className,
+  children,
+}: {
+  id: string;
+  data: DropData;
+  aktiv: boolean;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id, data });
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        className,
+        aktiv && "outline-dashed outline-1 outline-primary/30",
+        isOver && "outline-2 outline-primary bg-primary/5"
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** Ziehbares Element (bestehender Einsatz). Klick bleibt erhalten. */
+function DragItem({
+  id,
+  data,
+  disabled,
+  onClick,
+  style,
+  className,
+  title,
+  children,
+}: {
+  id: string;
+  data: DragData;
+  disabled?: boolean;
+  onClick?: () => void;
+  style?: React.CSSProperties;
+  className?: string;
+  title?: string;
+  children: React.ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id,
+    data,
+    disabled,
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      title={title}
+      onClick={onClick}
+      {...(disabled ? {} : listeners)}
+      {...attributes}
+      className={cn(
+        className,
+        !disabled && "cursor-grab active:cursor-grabbing touch-none",
+        isDragging && "opacity-40"
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** Kleine Vorschau, die am Cursor mitgezogen wird. */
+function DragVorschau({ titel, farbe }: { titel: string; farbe: string }) {
+  return (
+    <div
+      className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm font-medium shadow-lg"
+      style={{ borderLeft: `4px solid ${farbe}` }}
+    >
+      <GripVertical className="size-4 text-muted-foreground" />
+      <span className="max-w-50 truncate">{titel}</span>
+    </div>
+  );
+}
+
+/* --------------------------- Noch zu planen ---------------------------- */
+
+function ZuPlanenPanel({
+  anforderungen,
+  info,
+}: {
+  anforderungen: Anforderung[];
+  info: InfoFn;
+}) {
+  return (
+    <div className="mb-4 rounded-xl border bg-muted/30 p-3">
+      <div className="mb-2 flex items-center gap-2">
+        <Layers className="size-4 text-muted-foreground" />
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Noch zu planen ({anforderungen.length})
+        </h2>
+        {anforderungen.length > 0 && (
+          <span className="text-xs text-muted-foreground/70">
+            – auf einen Tag bzw. eine Kolonne ziehen
+          </span>
+        )}
+      </div>
+      {anforderungen.length === 0 ? (
+        <p className="rounded-lg border border-dashed bg-card px-3 py-4 text-center text-xs text-muted-foreground/70">
+          Alle Anforderungen sind eingeplant.
+        </p>
+      ) : (
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {anforderungen.map((a) => (
+            <ZuPlanenKarte key={a.id} a={a} info={info} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ZuPlanenKarte({ a, info }: { a: Anforderung; info: InfoFn }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `anf:${a.id}`,
+    data: { typ: "anforderung", id: a.id } satisfies DragData,
+  });
+  // info() braucht nur anforderung_id, daher ein minimaler Stub.
+  const d = info({ anforderung_id: a.id } as Einsatz);
+  return (
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      className={cn(
+        "w-56 shrink-0 cursor-grab touch-none rounded-lg border border-l-4 bg-card p-2.5 shadow-sm transition hover:shadow-md active:cursor-grabbing",
+        isDragging && "opacity-40"
+      )}
+      style={{ borderLeftColor: "#005A9A" }}
+    >
+      <div className="flex items-start gap-1.5">
+        <GripVertical className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-semibold" title={d.b?.name}>
+            {d.b?.name ?? a.adresse ?? "Anforderung"}
+          </div>
+          {d.b?.baustellennummer && (
+            <div className="truncate text-xs text-muted-foreground">
+              Nr. {d.b.baustellennummer}
+            </div>
+          )}
+          {d.material && (
+            <div
+              className="mt-1 truncate text-xs text-foreground/70"
+              title={`${d.material} · ${formatTonnage(d.tonnage)}`}
+            >
+              {d.material} · {formatTonnage(d.tonnage)}
+            </div>
+          )}
+          <div className="mt-1.5 flex items-center justify-between gap-1.5">
+            <span
+              title={STATUS_LABEL[a.status]}
+              className={cn(
+                "inline-flex shrink-0 items-center whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-medium leading-none",
+                STATUS_BADGE[a.status]
+              )}
+            >
+              {STATUS_LABEL_KURZ[a.status]}
+            </span>
+            <span className="shrink-0 text-[11px] text-muted-foreground">
+              {fmtDatum(a.wunschtermin)}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ----------------------------- Wochenansicht ----------------------------- */
 
 function WochenAnsicht({
@@ -543,6 +1032,7 @@ function WochenAnsicht({
   konfliktSet,
   heuteIso,
   darfPlanen,
+  ziehtGerade,
   info,
   onEinsatz,
   onPlanen,
@@ -552,13 +1042,15 @@ function WochenAnsicht({
   konfliktSet: Set<string>;
   heuteIso: string;
   darfPlanen: boolean;
+  ziehtGerade: boolean;
   info: InfoFn;
   onEinsatz: (e: Einsatz) => void;
   onPlanen: (datum?: string, kolonne_id?: string) => void;
 }) {
   const tage = Array.from({ length: 7 }, (_, i) => addDays(anker, i));
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-7">
+    <div className="overflow-x-auto pb-1">
+      <div className="grid min-w-[1000px] grid-cols-7 gap-3">
       {tage.map((tag, i) => {
         const iso = isoDate(tag);
         const tages = einsaetze
@@ -566,10 +1058,16 @@ function WochenAnsicht({
           .sort((a, b) => a.startzeit.localeCompare(b.startzeit));
         const heute = heuteIso === iso;
         return (
-          <Card
+          <DropZone
             key={iso}
+            id={`day:${iso}`}
+            data={{ typ: "day", iso }}
+            aktiv={darfPlanen && ziehtGerade}
+            className="h-full rounded-xl"
+          >
+          <Card
             className={cn(
-              "group min-h-44 gap-2 p-2.5",
+              "group h-full min-h-44 gap-2 p-2.5",
               heute && "border-primary ring-1 ring-primary/30"
             )}
           >
@@ -605,8 +1103,11 @@ function WochenAnsicht({
                 const d = info(e);
                 const konflikt = konfliktSet.has(e.id);
                 return (
-                  <button
+                  <DragItem
                     key={e.id}
+                    id={`einsatz:${e.id}`}
+                    data={{ typ: "einsatz", id: e.id }}
+                    disabled={!darfPlanen}
                     onClick={() => onEinsatz(e)}
                     style={{ borderLeftColor: d.kolonne?.farbe ?? "#888" }}
                     className={cn(
@@ -614,12 +1115,15 @@ function WochenAnsicht({
                       konflikt && "border-red-300 bg-red-50/60"
                     )}
                   >
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex min-w-0 items-center gap-1.5">
                       <span
                         className="size-2.5 shrink-0 rounded-full"
                         style={{ backgroundColor: d.kolonne?.farbe }}
                       />
-                      <span className="text-sm font-semibold">
+                      <span
+                        className="truncate text-sm font-semibold"
+                        title={d.kolonne?.name}
+                      >
                         {d.kolonne?.name}
                       </span>
                     </div>
@@ -627,7 +1131,7 @@ function WochenAnsicht({
                       {e.startzeit} · {e.dauer_std} Std.
                     </div>
                     <div
-                      className="mt-1 line-clamp-2 text-sm font-medium leading-snug break-normal"
+                      className="mt-1 truncate text-sm font-medium leading-snug"
                       title={d.b?.name}
                     >
                       {d.b?.name ?? "–"}
@@ -645,12 +1149,12 @@ function WochenAnsicht({
                         {d.material} · {formatTonnage(d.tonnage)}
                       </div>
                     )}
-                    <div className="mt-2 flex flex-wrap items-center gap-1">
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       {d.a && (
                         <span
                           title={STATUS_LABEL[d.a.status]}
                           className={cn(
-                            "inline-flex max-w-full items-center truncate rounded-full border px-2 py-0.5 text-[11px] font-medium leading-none",
+                            "inline-flex shrink-0 items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium leading-none",
                             STATUS_BADGE[d.a.status]
                           )}
                         >
@@ -658,18 +1162,20 @@ function WochenAnsicht({
                         </span>
                       )}
                       {konflikt && (
-                        <span className="inline-flex items-center gap-1 rounded-full border border-red-300 bg-red-100 px-2 py-0.5 text-[11px] font-medium leading-none text-red-700">
+                        <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-red-300 bg-red-100 px-2 py-0.5 text-[11px] font-medium leading-none text-red-700">
                           <AlertTriangle className="size-3" /> Konflikt
                         </span>
                       )}
                     </div>
-                  </button>
+                  </DragItem>
                 );
               })}
             </div>
           </Card>
+          </DropZone>
         );
       })}
+      </div>
     </div>
   );
 }
@@ -774,6 +1280,7 @@ function KolonnenAnsicht({
   konfliktSet,
   heuteIso,
   darfPlanen,
+  ziehtGerade,
   info,
   onEinsatz,
   onPlanen,
@@ -784,6 +1291,7 @@ function KolonnenAnsicht({
   konfliktSet: Set<string>;
   heuteIso: string;
   darfPlanen: boolean;
+  ziehtGerade: boolean;
   info: InfoFn;
   onEinsatz: (e: Einsatz) => void;
   onPlanen: (datum?: string, kolonne_id?: string) => void;
@@ -830,8 +1338,11 @@ function KolonnenAnsicht({
                 .filter((e) => e.kolonne_id === k.id && e.datum === iso)
                 .sort((a, b) => a.startzeit.localeCompare(b.startzeit));
               return (
-                <div
+                <DropZone
                   key={iso}
+                  id={`cell:${k.id}|${iso}`}
+                  data={{ typ: "cell", kolonneId: k.id, iso }}
+                  aktiv={darfPlanen && ziehtGerade}
                   className={cn(
                     "group/cell min-h-16 space-y-1 border-l p-1.5",
                     heute && "bg-primary/5"
@@ -841,8 +1352,11 @@ function KolonnenAnsicht({
                     const d = info(e);
                     const konflikt = konfliktSet.has(e.id);
                     return (
-                      <button
+                      <DragItem
                         key={e.id}
+                        id={`einsatz:${e.id}`}
+                        data={{ typ: "einsatz", id: e.id }}
+                        disabled={!darfPlanen}
                         onClick={() => onEinsatz(e)}
                         style={{ backgroundColor: k.farbe }}
                         className={cn(
@@ -852,7 +1366,7 @@ function KolonnenAnsicht({
                         title={`${e.startzeit} · ${d.b?.name ?? ""}`}
                       >
                         {e.startzeit} · {d.b?.name ?? "Einsatz"}
-                      </button>
+                      </DragItem>
                     );
                   })}
                   {darfPlanen && (
@@ -864,7 +1378,7 @@ function KolonnenAnsicht({
                       +
                     </button>
                   )}
-                </div>
+                </DropZone>
               );
             })}
           </div>
@@ -882,6 +1396,7 @@ function EinsatzDetailDialog({
   konflikt,
   info,
   darfPlanen,
+  onEdit,
   onDelete,
 }: {
   einsatz: Einsatz | null;
@@ -889,16 +1404,12 @@ function EinsatzDetailDialog({
   konflikt: boolean;
   info: InfoFn;
   darfPlanen: boolean;
+  onEdit: (e: Einsatz) => void;
   onDelete: (id: string) => void;
 }) {
   if (!einsatz) return null;
   const d = info(einsatz);
-  const datum = new Intl.DateTimeFormat("de-DE", {
-    weekday: "long",
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  }).format(new Date(einsatz.datum));
+  const datum = fmtDatumLang(einsatz.datum);
 
   return (
     <Dialog open={Boolean(einsatz)} onOpenChange={(o) => !o && onClose()}>
@@ -957,23 +1468,30 @@ function EinsatzDetailDialog({
               {d.material || "–"} · {formatTonnage(d.tonnage)}
             </dd>
           </div>
+          <div className="col-span-2">
+            <dt className="text-xs uppercase tracking-wide text-muted-foreground">
+              Wetter am Einbautag
+            </dt>
+            <dd className="mt-1">
+              <WetterBadge
+                lat={d.a?.breitengrad ?? d.b?.breitengrad}
+                lng={d.a?.laengengrad ?? d.b?.laengengrad}
+                datum={einsatz.datum}
+              />
+            </dd>
+          </div>
         </dl>
 
-        <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between">
-          {darfPlanen ? (
-            <Button
-              variant="ghost"
-              className="text-destructive hover:text-destructive"
-              onClick={() => onDelete(einsatz.id)}
-            >
-              <Trash2 className="size-4" />
-              Einsatz löschen
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          {darfPlanen && (
+            <Button onClick={() => onEdit(einsatz)}>
+              <Pencil className="size-4" />
+              Bearbeiten
             </Button>
-          ) : (
-            <span />
           )}
           {d.a && (
             <Button
+              variant="outline"
               nativeButton={false}
               render={<Link href={`/anforderungen/${d.a.id}`} />}
             >
@@ -981,7 +1499,17 @@ function EinsatzDetailDialog({
               Zur Anforderung
             </Button>
           )}
-        </DialogFooter>
+          {darfPlanen && (
+            <Button
+              variant="outline"
+              className="border-destructive/30 text-destructive hover:bg-destructive/5 hover:text-destructive"
+              onClick={() => onDelete(einsatz.id)}
+            >
+              <Trash2 className="size-4" />
+              Löschen
+            </Button>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );

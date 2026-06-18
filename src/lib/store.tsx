@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import type {
@@ -17,6 +18,7 @@ import type {
   Kolonne,
   Materialart,
   Mischanlage,
+  Betrieb,
 } from "./types";
 import {
   SEED_ANFORDERUNGEN,
@@ -35,6 +37,7 @@ interface DataState {
   anforderungen: Anforderung[];
   einsaetze: Einsatz[];
   mischanlage: Mischanlage;
+  betrieb: Betrieb;
 }
 
 const SEED_MISCHANLAGE: Mischanlage = {
@@ -42,6 +45,11 @@ const SEED_MISCHANLAGE: Mischanlage = {
   breitengrad: 47.8573,
   laengengrad: 9.9967,
   produktionsleistung: 160,
+};
+
+const SEED_BETRIEB: Betrieb = {
+  fuhrparkLkw: 5,
+  sortenwechselRuestzeitMin: 30,
 };
 
 const SEED: DataState = {
@@ -52,6 +60,7 @@ const SEED: DataState = {
   anforderungen: SEED_ANFORDERUNGEN,
   einsaetze: SEED_EINSAETZE,
   mischanlage: SEED_MISCHANLAGE,
+  betrieb: SEED_BETRIEB,
 };
 
 const DATA_KEY = "asphalt-takt-data-v1";
@@ -63,15 +72,18 @@ interface StoreContextType extends DataState {
   addAnforderung: (a: Omit<Anforderung, "id" | "erstellt_am">) => Anforderung;
   updateAnforderung: (id: string, patch: Partial<Anforderung>) => void;
   setAnforderungStatus: (id: string, status: AnforderungStatus) => void;
-  addBaustelle: (b: Omit<Baustelle, "id">) => void;
+  deleteAnforderung: (id: string) => void;
+  addBaustelle: (b: Omit<Baustelle, "id">) => Baustelle;
   updateBaustelle: (id: string, patch: Partial<Baustelle>) => void;
   addMaterialart: (m: Omit<Materialart, "id">) => void;
   updateMaterialart: (id: string, patch: Partial<Materialart>) => void;
   addKolonne: (k: Omit<Kolonne, "id">) => void;
   updateKolonne: (id: string, patch: Partial<Kolonne>) => void;
   addEinsatz: (e: Omit<Einsatz, "id">) => void;
+  updateEinsatz: (id: string, patch: Partial<Einsatz>) => void;
   deleteEinsatz: (id: string) => void;
   setMischanlage: (m: Mischanlage) => void;
+  setBetrieb: (b: Betrieb) => void;
   resetDaten: () => void;
 }
 
@@ -88,6 +100,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [data, setData] = useState<DataState>(SEED);
   const [currentUserId, setCurrentUserIdState] = useState<string>("u1");
   const [hydrated, setHydrated] = useState(false);
+
+  // Aktuelle Benutzer-ID als Ref, damit Callbacks ohne erneutes Anlegen
+  // immer den neuesten Wert kennen (z. B. fürs Status-Protokoll).
+  const currentUserIdRef = useRef(currentUserId);
+  useEffect(() => {
+    currentUserIdRef.current = currentUserId;
+  }, [currentUserId]);
 
   useEffect(() => {
     try {
@@ -126,10 +145,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const addAnforderung = useCallback(
     (a: Omit<Anforderung, "id" | "erstellt_am">) => {
+      const jetzt = new Date().toISOString();
       const neu: Anforderung = {
         ...a,
         id: uid(),
-        erstellt_am: new Date().toISOString(),
+        erstellt_am: jetzt,
+        statusverlauf: [
+          { status: a.status, am: jetzt, von: currentUserIdRef.current },
+        ],
       };
       setData((d) => ({ ...d, anforderungen: [neu, ...d.anforderungen] }));
       return neu;
@@ -151,21 +174,43 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const setAnforderungStatus = useCallback(
     (id: string, status: AnforderungStatus) => {
+      const eintrag = {
+        status,
+        am: new Date().toISOString(),
+        von: currentUserIdRef.current,
+      };
       setData((d) => ({
         ...d,
         anforderungen: d.anforderungen.map((a) =>
-          a.id === id ? { ...a, status } : a
+          a.id === id
+            ? {
+                ...a,
+                status,
+                statusverlauf: [...(a.statusverlauf ?? []), eintrag],
+              }
+            : a
         ),
       }));
     },
     []
   );
 
-  const addBaustelle = useCallback((b: Omit<Baustelle, "id">) => {
+  const deleteAnforderung = useCallback((id: string) => {
     setData((d) => ({
       ...d,
-      baustellen: [{ ...b, id: uid() }, ...d.baustellen],
+      anforderungen: d.anforderungen.filter((a) => a.id !== id),
+      // zugehörige Einsätze ebenfalls entfernen
+      einsaetze: d.einsaetze.filter((e) => e.anforderung_id !== id),
     }));
+  }, []);
+
+  const addBaustelle = useCallback((b: Omit<Baustelle, "id">) => {
+    const neu: Baustelle = { ...b, id: uid() };
+    setData((d) => ({
+      ...d,
+      baustellen: [neu, ...d.baustellen],
+    }));
+    return neu;
   }, []);
 
   const updateBaustelle = useCallback(
@@ -214,6 +259,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setData((d) => ({ ...d, einsaetze: [...d.einsaetze, { ...e, id: uid() }] }));
   }, []);
 
+  const updateEinsatz = useCallback((id: string, patch: Partial<Einsatz>) => {
+    setData((d) => ({
+      ...d,
+      einsaetze: d.einsaetze.map((e) => (e.id === id ? { ...e, ...patch } : e)),
+    }));
+  }, []);
+
   const deleteEinsatz = useCallback((id: string) => {
     setData((d) => ({
       ...d,
@@ -223,6 +275,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const setMischanlage = useCallback((m: Mischanlage) => {
     setData((d) => ({ ...d, mischanlage: m }));
+  }, []);
+
+  const setBetrieb = useCallback((b: Betrieb) => {
+    setData((d) => ({ ...d, betrieb: b }));
   }, []);
 
   const resetDaten = useCallback(() => {
@@ -240,6 +296,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       addAnforderung,
       updateAnforderung,
       setAnforderungStatus,
+      deleteAnforderung,
       addBaustelle,
       updateBaustelle,
       addMaterialart,
@@ -247,8 +304,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       addKolonne,
       updateKolonne,
       addEinsatz,
+      updateEinsatz,
       deleteEinsatz,
       setMischanlage,
+      setBetrieb,
       resetDaten,
     }),
     [
@@ -258,6 +317,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       addAnforderung,
       updateAnforderung,
       setAnforderungStatus,
+      deleteAnforderung,
       addBaustelle,
       updateBaustelle,
       addMaterialart,
@@ -265,14 +325,39 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       addKolonne,
       updateKolonne,
       addEinsatz,
+      updateEinsatz,
       deleteEinsatz,
       setMischanlage,
+      setBetrieb,
       resetDaten,
     ]
   );
 
+  // Bis die Daten aus dem Speicher (localStorage = "Datenbank") geladen sind,
+  // einen Ladezustand zeigen. So wird nie der Seed-/Ausgangsstand angezeigt und
+  // anschließend überschrieben – das vermeidet das Aufblitzen alter Positionen
+  // (z. B. eines gerade verschobenen Einsatzes) nach dem Neuladen.
+  if (!hydrated) {
+    return <DatenLadeschirm />;
+  }
+
   return (
     <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
+  );
+}
+
+function DatenLadeschirm() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background">
+      <div className="flex flex-col items-center gap-3 text-muted-foreground">
+        <span
+          className="size-6 animate-spin rounded-full border-2 border-current border-t-transparent"
+          aria-hidden
+        />
+        <span className="text-sm">Daten werden geladen…</span>
+        <span className="sr-only">Bitte warten</span>
+      </div>
+    </div>
   );
 }
 

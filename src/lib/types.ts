@@ -19,6 +19,13 @@ export interface Mischanlage {
   produktionsleistung: number;
 }
 
+export interface Betrieb {
+  /** Firmenweit verfügbare LKW gesamt. */
+  fuhrparkLkw: number;
+  /** Rüstzeit an der Anlage bei einem Sortenwechsel (Minuten). */
+  sortenwechselRuestzeitMin: number;
+}
+
 export interface Benutzer {
   id: string;
   name: string;
@@ -33,6 +40,8 @@ export interface Baustelle {
   baustellennummer: string;
   name: string;
   adresse: string;
+  breitengrad?: number;
+  laengengrad?: number;
   ansprechpartner?: string;
   hinweis?: string;
   status: "aktiv" | "inaktiv";
@@ -65,6 +74,13 @@ export interface MaterialPosition {
   einbautag?: string;
 }
 
+export interface StatusEintrag {
+  status: AnforderungStatus;
+  am: string;
+  /** Benutzer-ID, die den Status gesetzt hat. */
+  von: string;
+}
+
 export interface Anforderung {
   id: string;
   baustelle_id: string;
@@ -92,6 +108,7 @@ export interface Anforderung {
   tok_band?: boolean;
   erfasst_von: string;
   erstellt_am: string;
+  statusverlauf?: StatusEintrag[];
   materialien: MaterialPosition[];
 }
 

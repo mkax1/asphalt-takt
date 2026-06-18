@@ -1,20 +1,36 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import { toast } from "sonner";
 import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
   Factory,
   MapPin,
+  Printer,
   Truck,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { formatTonnage } from "@/lib/calc";
+import { dokumentDrucken, escHtml } from "@/lib/druck";
+import {
+  addDays,
+  addMonths,
+  endeDesMonats,
+  fmtDatumLang,
+  fmtMonatJahr,
+  fmtTagMonat,
+  isoDate,
+  kalenderWoche,
+  parseIso,
+  startDerWoche,
+  startDesMonats,
+} from "@/lib/datum";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/ui/date-field";
 import {
   Table,
   TableBody,
@@ -29,75 +45,9 @@ type Modus = "tag" | "woche" | "monat";
 
 const TAGE = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 
-/** ISO-Datum (YYYY-MM-DD) ohne Zeitzonen-Verschiebung. */
-function isoDate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-/** Wandelt ein ISO-Datum sicher in ein lokales Date um (kein UTC-Versatz). */
-function parseIso(iso: string): Date {
-  const [y, m, d] = iso.split("-").map(Number);
-  return new Date(y, (m || 1) - 1, d || 1);
-}
-
-function addDays(d: Date, n: number): Date {
-  const x = new Date(d);
-  x.setDate(x.getDate() + n);
-  return x;
-}
-
-function addMonths(d: Date, n: number): Date {
-  return new Date(d.getFullYear(), d.getMonth() + n, 1);
-}
-
-function startDerWoche(d: Date): Date {
-  const date = new Date(d);
-  const tag = (date.getDay() + 6) % 7; // Montag = 0
-  date.setDate(date.getDate() - tag);
-  date.setHours(0, 0, 0, 0);
-  return date;
-}
-
-function startDesMonats(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), 1);
-}
-
-function endeDesMonats(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth() + 1, 0);
-}
-
-function kalenderWoche(d: Date): number {
-  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  const dayNum = (date.getUTCDay() + 6) % 7;
-  date.setUTCDate(date.getUTCDate() - dayNum + 3);
-  const firstThursday = new Date(Date.UTC(date.getUTCFullYear(), 0, 4));
-  const diff = date.getTime() - firstThursday.getTime();
-  return 1 + Math.round(diff / (7 * 24 * 3600 * 1000));
-}
-
-function langDatum(iso: string): string {
-  return new Intl.DateTimeFormat("de-DE", {
-    weekday: "long",
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  }).format(parseIso(iso));
-}
-
-function monatLang(iso: string): string {
-  return new Intl.DateTimeFormat("de-DE", {
-    month: "long",
-    year: "numeric",
-  }).format(parseIso(iso));
-}
-
-function kurz(iso: string): string {
-  const d = parseIso(iso);
-  return `${d.getDate()}.${d.getMonth() + 1}.`;
-}
+const langDatum = fmtDatumLang;
+const monatLang = fmtMonatJahr;
+const kurz = fmtTagMonat;
 
 interface Beitrag {
   material_id: string;
@@ -297,11 +247,69 @@ export default function TagesbedarfPage() {
   const periodeKurz =
     modus === "tag" ? "des Tages" : modus === "woche" ? "der Woche" : "des Monats";
 
+  function drucken() {
+    if (gruppen.length === 0) {
+      toast.error("Für diesen Zeitraum gibt es keinen Bedarf zum Drucken.");
+      return;
+    }
+    const zeilen = gruppen
+      .map(
+        (g) => `
+        <tr>
+          <td class="strong">${escHtml(materialNr(g.material_id))}</td>
+          <td>${escHtml(materialName(g.material_id))}</td>
+          <td class="num">${g.anzahlBaustellen}</td>
+          <td>${g.baustellen.map(escHtml).join(", ")}</td>
+          <td class="num strong">${formatTonnage(g.tonnage)}</td>
+        </tr>`
+      )
+      .join("");
+    const body = `
+      <div class="kpis">
+        <div class="kpi"><div class="label">Gesamttonnage ${escHtml(
+          periodeKurz
+        )}</div><div class="value">${formatTonnage(gesamtTonnage)}</div></div>
+        <div class="kpi"><div class="label">Mischgutsorten</div><div class="value">${
+          gruppen.length
+        }</div></div>
+        <div class="kpi"><div class="label">Einsätze</div><div class="value">${einsaetzeImBereich}</div></div>
+      </div>
+      <h2>Bedarf je Mischgutsorte</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Nr.</th><th>Mischgutsorte</th>
+            <th class="num">Baustellen</th><th>Baustellen-Namen</th>
+            <th class="num">Tonnage</th>
+          </tr>
+        </thead>
+        <tbody>${zeilen}</tbody>
+        <tfoot>
+          <tr><td colspan="4">Gesamt</td><td class="num">${formatTonnage(
+            gesamtTonnage
+          )}</td></tr>
+        </tfoot>
+      </table>
+      <div class="hinweis">Richtwerte – bitte mit Anlage und Disposition abstimmen.</div>`;
+    dokumentDrucken({
+      titel: "Bedarf der Mischanlage",
+      untertitel: periodeLabel,
+      bodyHtml: body,
+      logoUrl: window.location.origin + "/logo.png",
+    });
+  }
+
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader
         title="Bedarf der Mischanlage"
         description="Was die Asphaltmischanlage produzieren muss."
+        actions={
+          <Button variant="outline" onClick={drucken}>
+            <Printer className="size-4" />
+            Drucken / PDF
+          </Button>
+        }
       />
 
       {/* Steuerleiste: Modus + Navigation */}
@@ -327,10 +335,9 @@ export default function TagesbedarfPage() {
           <Button variant="outline" size="icon" onClick={() => verschiebe(-1)}>
             <ChevronLeft className="size-4" />
           </Button>
-          <Input
-            type="date"
+          <DateField
             value={datum}
-            onChange={(e) => e.target.value && setDatum(e.target.value)}
+            onChange={(iso) => iso && setDatum(iso)}
             className="w-44"
           />
           <Button variant="outline" size="icon" onClick={() => verschiebe(1)}>

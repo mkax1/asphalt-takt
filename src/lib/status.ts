@@ -25,13 +25,16 @@ export const STATUS_LABEL_KURZ: Record<AnforderungStatus, string> = {
   abgeschlossen: "Fertig",
 };
 
-/** Tailwind-Klassen je Status fuer farbige Badges. */
+/**
+ * Tailwind-Klassen je Status – gedeckte, einheitliche Palette
+ * (helle Fläche, kräftiger Text, feiner Rahmen).
+ */
 export const STATUS_BADGE: Record<AnforderungStatus, string> = {
-  neu_erfasst: "bg-slate-100 text-slate-700 border-slate-200",
-  in_pruefung: "bg-amber-100 text-amber-800 border-amber-200",
-  planung_vervollstaendigt: "bg-emerald-100 text-emerald-800 border-emerald-200",
-  in_bearbeitung: "bg-sky-100 text-sky-800 border-sky-200",
-  abgeschlossen: "bg-emerald-600 text-white border-emerald-600",
+  neu_erfasst: "bg-slate-50 text-slate-600 border-slate-200",
+  in_pruefung: "bg-amber-50 text-amber-700 border-amber-200",
+  planung_vervollstaendigt: "bg-sky-50 text-sky-700 border-sky-200",
+  in_bearbeitung: "bg-indigo-50 text-indigo-700 border-indigo-200",
+  abgeschlossen: "bg-emerald-50 text-emerald-700 border-emerald-200",
 };
 
 export function naechsterStatus(
@@ -42,6 +45,14 @@ export function naechsterStatus(
   return STATUS_REIHENFOLGE[i + 1];
 }
 
+export function vorherigerStatus(
+  status: AnforderungStatus
+): AnforderungStatus | null {
+  const i = STATUS_REIHENFOLGE.indexOf(status);
+  if (i <= 0) return null;
+  return STATUS_REIHENFOLGE[i - 1];
+}
+
 export const PRIORITAET_LABEL: Record<Prioritaet, string> = {
   niedrig: "Niedrig",
   mittel: "Mittel",
@@ -49,9 +60,9 @@ export const PRIORITAET_LABEL: Record<Prioritaet, string> = {
 };
 
 export const PRIORITAET_BADGE: Record<Prioritaet, string> = {
-  niedrig: "bg-slate-100 text-slate-600 border-slate-200",
-  mittel: "bg-sky-100 text-sky-700 border-sky-200",
-  hoch: "bg-orange-100 text-orange-800 border-orange-200",
+  niedrig: "bg-slate-50 text-slate-600 border-slate-200",
+  mittel: "bg-sky-50 text-sky-700 border-sky-200",
+  hoch: "bg-orange-50 text-orange-700 border-orange-200",
 };
 
 export const ROLLE_LABEL: Record<Rolle, string> = {

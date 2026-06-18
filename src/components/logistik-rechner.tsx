@@ -15,8 +15,10 @@ import {
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { formatTonnage } from "@/lib/calc";
+import { routeBerechnen } from "@/lib/route-cache";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { TimeField } from "@/components/ui/time-field";
 import { Label } from "@/components/ui/label";
 import {
   Table,
@@ -65,7 +67,7 @@ export function LogistikRechner({
   zielLng?: number;
   standardLadekapazitaet?: number;
 }) {
-  const { mischanlage } = useStore();
+  const { mischanlage, betrieb } = useStore();
   const anlageLat = mischanlage.breitengrad;
   const anlageLng = mischanlage.laengengrad;
   const produktionsleistung = mischanlage.produktionsleistung || 160;
@@ -76,7 +78,9 @@ export function LogistikRechner({
       ? String(standardLadekapazitaet)
       : "25"
   );
-  const [anzahlLkw, setAnzahlLkw] = useState("5");
+  const [anzahlLkw, setAnzahlLkw] = useState(
+    String(betrieb.fuhrparkLkw || 5)
+  );
   const [ladezeit, setLadezeit] = useState("5");
   const [entladezeit, setEntladezeit] = useState("10");
   const [einbaustart, setEinbaustart] = useState("07:00");
@@ -92,21 +96,10 @@ export function LogistikRechner({
     }
     let abbruch = false;
     setRoute({ status: "laden" });
-    fetch("/api/route", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        from: { lat: anlageLat, lng: anlageLng },
-        to: { lat: zielLat, lng: zielLng },
-      }),
-    })
-      .then(async (r) => {
-        if (!r.ok) {
-          const j = await r.json().catch(() => ({}));
-          throw new Error(j.error || "Route konnte nicht berechnet werden.");
-        }
-        return r.json();
-      })
+    routeBerechnen(
+      { lat: anlageLat, lng: anlageLng },
+      { lat: zielLat, lng: zielLng }
+    )
       .then((d) => {
         if (!abbruch)
           setRoute({
@@ -203,24 +196,30 @@ export function LogistikRechner({
     gesamtTonnage,
   ]);
 
-  // Ampel-Warnung
+  // Ampel-Warnung – die grüne Bestätigung nur, wenn es tatsächlich Ladungen
+  // gibt und genügend LKW vorhanden sind.
   const warnung: { ton: "rot" | "orange" | "gruen"; text: string } =
-    berechnung.lkwVerfuegbar < berechnung.benoetigteLkw
+    gesamtTonnage <= 0 || berechnung.anzahlLadungen <= 0
       ? {
-          ton: "rot",
-          text: `Zu wenige LKW – der Fertiger läuft leer. Benötigt: ${berechnung.benoetigteLkw} LKW.`,
+          ton: "orange",
+          text: "Keine Tonnage hinterlegt – Taktplanung nicht möglich. Bitte Materialpositionen der Anforderung erfassen.",
         }
-      : produktionsleistung < berechnung.einbau
+      : berechnung.lkwVerfuegbar < berechnung.benoetigteLkw
         ? {
-            ton: "orange",
-            text: `Anlage ist der Engpass – Einbau real auf ${formatNum(
-              produktionsleistung
-            )} t/h begrenzt.`,
+            ton: "rot",
+            text: `Zu wenige LKW – der Fertiger läuft leer. Benötigt: ${berechnung.benoetigteLkw} LKW.`,
           }
-        : {
-            ton: "gruen",
-            text: "Takt passt – durchgehender Einbau möglich.",
-          };
+        : produktionsleistung < berechnung.einbau
+          ? {
+              ton: "orange",
+              text: `Anlage ist der Engpass – Einbau real auf ${formatNum(
+                produktionsleistung
+              )} t/h begrenzt.`,
+            }
+          : {
+              ton: "gruen",
+              text: "Takt passt – durchgehender Einbau möglich.",
+            };
 
   return (
     <Card>
@@ -276,7 +275,7 @@ export function LogistikRechner({
         </div>
 
         {/* Eingabefelder */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           <Feld
             id="einbau"
             label="Einbauleistung (t/Std.)"
@@ -296,10 +295,12 @@ export function LogistikRechner({
             onChange={setAnzahlLkw}
           />
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="fahrzeit">Fahrzeit einfach (Min.)</Label>
+            <div className="flex min-h-5 items-center justify-between gap-2">
+              <Label htmlFor="fahrzeit" className="leading-snug">
+                Fahrzeit einfach (Min.)
+              </Label>
               {fahrzeitAuto && (
-                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
                   aus Route
                 </span>
               )}
@@ -326,12 +327,13 @@ export function LogistikRechner({
             onChange={setEntladezeit}
           />
           <div className="space-y-2">
-            <Label htmlFor="start">Einbaustart</Label>
-            <Input
+            <Label htmlFor="start" className="leading-snug">
+              Einbaustart
+            </Label>
+            <TimeField
               id="start"
-              type="time"
               value={einbaustart}
-              onChange={(e) => setEinbaustart(e.target.value)}
+              onChange={(zeit) => setEinbaustart(zeit)}
             />
           </div>
         </div>
@@ -399,7 +401,7 @@ export function LogistikRechner({
             </p>
           ) : (
             <div className="max-h-[480px] overflow-auto rounded-lg border">
-              <Table>
+              <Table className="min-w-[620px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-14">Nr.</TableHead>
@@ -466,7 +468,9 @@ function Feld({
 }) {
   return (
     <div className="space-y-2">
-      <Label htmlFor={id}>{label}</Label>
+      <Label htmlFor={id} className="min-h-5 leading-snug">
+        {label}
+      </Label>
       <Input
         id={id}
         type="number"

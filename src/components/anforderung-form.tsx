@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/ui/date-field";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -188,6 +189,12 @@ export function AnforderungForm({ initial }: { initial?: Anforderung }) {
       setAdresse(b.adresse);
       setKostenstelle(b.baustellennummer);
       if (b.ansprechpartner) setAnsprechpartner(b.ansprechpartner);
+      // Koordinaten der Baustelle übernehmen, damit die Routen-/Taktplanung
+      // sofort rechnen kann.
+      if (b.breitengrad != null && b.laengengrad != null) {
+        setLat(b.breitengrad);
+        setLng(b.laengengrad);
+      }
     }
   }
 
@@ -493,11 +500,10 @@ export function AnforderungForm({ initial }: { initial?: Anforderung }) {
                     </div>
                     <div className="space-y-2">
                       <Label>Einbautag</Label>
-                      <Input
-                        type="date"
+                      <DateField
                         value={p.einbautag}
-                        onChange={(e) =>
-                          updatePos(p.key, { einbautag: e.target.value })
+                        onChange={(iso) =>
+                          updatePos(p.key, { einbautag: iso })
                         }
                       />
                     </div>
@@ -572,10 +578,9 @@ export function AnforderungForm({ initial }: { initial?: Anforderung }) {
           <CardContent className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>Wunschtermin *</Label>
-              <Input
-                type="date"
+              <DateField
                 value={wunschtermin}
-                onChange={(e) => setWunschtermin(e.target.value)}
+                onChange={(iso) => setWunschtermin(iso)}
               />
             </div>
             <div className="space-y-2">
@@ -597,18 +602,16 @@ export function AnforderungForm({ initial }: { initial?: Anforderung }) {
             </div>
             <div className="space-y-2">
               <Label>Zeitraum von</Label>
-              <Input
-                type="date"
+              <DateField
                 value={zeitraumVon}
-                onChange={(e) => setZeitraumVon(e.target.value)}
+                onChange={(iso) => setZeitraumVon(iso)}
               />
             </div>
             <div className="space-y-2">
               <Label>Zeitraum bis</Label>
-              <Input
-                type="date"
+              <DateField
                 value={zeitraumBis}
-                onChange={(e) => setZeitraumBis(e.target.value)}
+                onChange={(iso) => setZeitraumBis(iso)}
               />
             </div>
             <div className="space-y-2">
